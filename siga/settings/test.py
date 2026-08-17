@@ -1,13 +1,13 @@
 """
 Settings dedies aux tests pytest.
-- BD sqlite IN-MEMORY (jamais touchee la BD MySQL prod gesafped26)
+- BD sqlite IN-MEMORY (ne touche JAMAIS la BD de travail PostgreSQL `iss`)
 - Migrations desactivees (--no-migrations en CI) pour vitesse
 - Hashing rapide MD5 (10x plus rapide que bcrypt)
 - Axes desactive (sinon login en boucle dans les tests)
 """
 from .base import *  # noqa: F401,F403
 
-# BD ISOLEE EN RAM — ne touche JAMAIS gesafped26
+# BD ISOLEE EN RAM — ne touche JAMAIS la BD de travail `iss`
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -41,5 +41,5 @@ SECRET_KEY = 'test-secret-key-do-not-use-in-prod'
 # migrations de seed RBAC (authentication 0004/0007/0008/0009) ne doivent PAS
 # peupler la base : la suite de tests a ete ecrite sur une baseline VIDE
 # (--no-migrations). Ce flag les court-circuite uniquement sous settings de
-# test ; les deploiements reels (MySQL prod, futur PostgreSQL) les executent.
+# test ; les deploiements reels (PostgreSQL) les executent.
 SEEDS_DESACTIVES_POUR_TESTS = True

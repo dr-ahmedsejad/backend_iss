@@ -265,17 +265,19 @@ BACKUP_BASE_DIR = config(
     'BACKUP_BASE_DIR',
     default=str(BASE_DIR / 'local_backups'),  # fallback dev local
 )
-# Fichier credentials MySQL pour les scripts (chmod 600). Le user doit avoir
-# au moins SELECT + LOCK TABLES + RELOAD + TRIGGER + EVENT + SHOW VIEW.
+# Fichier credentials BD pour les scripts de dump (chmod 600). Sur PostgreSQL,
+# l'equivalent est un .pgpass ; sur MySQL, le user doit avoir au moins
+# SELECT + LOCK TABLES + RELOAD + TRIGGER + EVENT + SHOW VIEW.
 BACKUP_DB_CONFIG_PATH = config(
     'BACKUP_DB_CONFIG_PATH',
     default='/etc/siga-backup/db.cnf',
 )
 # Binaires utilises par le generator manuel (peuvent etre des chemins absolus
 # si pas dans PATH, p.ex. WAMP sous Windows).
+# Inerte sur cette branche : utilisé uniquement si DB_ENGINE=mysql.
 BACKUP_MYSQLDUMP_BIN = config('BACKUP_MYSQLDUMP_BIN', default='mysqldump')
-# Équivalent PG (utilisé UNIQUEMENT quand connection.vendor == 'postgresql',
-# donc inerte tant que DB_ENGINE reste 'mysql' — préparation cutover PG).
+# Binaire EFFECTIVEMENT utilisé sur cette branche (connection.vendor == 'postgresql').
+# Doit être dans le PATH, sinon renseigner le chemin absolu via .env.
 BACKUP_PGDUMP_BIN    = config('BACKUP_PGDUMP_BIN',    default='pg_dump')
 BACKUP_OPENSSL_BIN   = config('BACKUP_OPENSSL_BIN',   default='openssl')
 # Retention des backups manuels chiffres (jours). Le cleanup tourne via cron.
