@@ -45,7 +45,12 @@ class PVDeliberationViewSet(InstitutionScopedMixin, viewsets.ModelViewSet):
     filter_backends    = [DjangoFilterBackend]
     # Note : on retire 'annee_univ' du filterset_fields auto pour le gerer
     # nous-memes (couvre PV annuel via annee_univ ET PV semestriel via session.annee_univ)
-    filterset_fields   = ['session', 'filiere', 'niveau', 'type_pv', 'est_clos']
+    #
+    # session__type_session : filtre normale / rattrapage. Il porte sur la session
+    # liee, donc il exclut mecaniquement les PV annuels (session NULL) — ce qui est
+    # le comportement voulu : la notion de rattrapage n'existe qu'au semestre.
+    filterset_fields   = ['session', 'filiere', 'niveau', 'type_pv', 'est_clos',
+                          'session__type_session']
 
     def get_queryset(self):
         from django.db.models import Q
