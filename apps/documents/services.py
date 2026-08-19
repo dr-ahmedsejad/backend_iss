@@ -1715,7 +1715,8 @@ def generer_document(data: dict, user) -> dict:
     return DocumentOfficielSerializer(doc).data
 
 
-def generer_documents_groupe(type_document, annee_univ, filiere_id, semestre_id, user):
+def generer_documents_groupe(type_document, annee_univ, filiere_id, semestre_id, user,
+                             niveau=None):
     """
     Génération GROUPÉE : 1 document officiel par étudiant concerné, FUSIONNÉS en un
     seul PDF. Retourne (pdf_bytes, nb_ok, nb_total, erreurs).
@@ -1723,6 +1724,13 @@ def generer_documents_groupe(type_document, annee_univ, filiere_id, semestre_id,
     Sélection des étudiants concernés :
       - relevés (releve_*) : inscrits PÉDAGOGIQUEMENT au semestre (année + filière).
       - attestations       : inscrits ADMINISTRATIVEMENT (année + filière).
+
+    `niveau` (optionnel) restreint à une seule promotion. Indispensable dès qu'une
+    filière porte plusieurs niveaux la même année (ex. LPSEA 2026-2027 : 47 en L2 et
+    39 en L3) : sans lui, un même PDF mélange les promotions. Pour les relevés, le
+    semestre ne suffit PAS à isoler un niveau — un L3 en dette réapparaît sur un
+    semestre de L2. Sans objet pour les diplômes : le registre ne porte pas de niveau
+    (le diplôme est de fin de cycle), le filtre y est donc ignoré.
 
     Officiels individuels : chaque étudiant a son DocumentOfficiel (numéro de série
     + QR). RÉUTILISE un doc déjà créé pour (étudiant, type, année, semestre) — pas de
@@ -1745,6 +1753,8 @@ def generer_documents_groupe(type_document, annee_univ, filiere_id, semestre_id,
                       semestre_id=semestre_id)
               .select_related('inscription_admin__etudiant')
               .order_by('inscription_admin__etudiant__matricule'))
+        if niveau:
+            qs = qs.filter(inscription_admin__niveau=niveau)
         etudiants = [ip.inscription_admin.etudiant for ip in qs]
     elif is_diplome:
         # Diplôme / attestation de diplôme : SEULS les étudiants effectivement
@@ -1760,6 +1770,8 @@ def generer_documents_groupe(type_document, annee_univ, filiere_id, semestre_id,
               .filter(annee_univ__annee=annee_univ, filiere_id=filiere_id)
               .select_related('etudiant')
               .order_by('etudiant__matricule'))
+        if niveau:
+            qs = qs.filter(niveau=niveau)
         etudiants = [ia.etudiant for ia in qs]
 
     seen, uniques = set(), []
@@ -1776,10 +1788,11 @@ def generer_documents_groupe(type_document, annee_univ, filiere_id, semestre_id,
         if semestre_id:
             sem = Semestre.objects.filter(pk=semestre_id).first()
             sem_txt = f' — semestre {sem.code_semestre}' if sem else ''
+        niv_txt = f' — niveau L{niveau}' if niveau else ''
         raise ValueError(
-            f"Aucun étudiant inscrit en {fil_txt}{sem_txt} pour l'année {annee_univ}. "
-            f"Vérifiez la filière et le semestre choisis (le semestre doit correspondre "
-            f"à une promotion réellement inscrite cette année)."
+            f"Aucun étudiant inscrit en {fil_txt}{niv_txt}{sem_txt} pour l'année {annee_univ}. "
+            f"Vérifiez la filière, le niveau et le semestre choisis (la combinaison doit "
+            f"correspondre à une promotion réellement inscrite cette année)."
         )
 
     writer = PdfWriter()

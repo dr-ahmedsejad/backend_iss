@@ -108,12 +108,14 @@ class DocumentOfficielViewSet(InstitutionScopedMixin, viewsets.ReadOnlyModelView
     def generer_groupe(self, request):
         """Génération GROUPÉE : 1 document officiel par étudiant concerné, fusionnés
         en UN seul PDF (renvoyé directement). Filtres : type_document +
-        annee_universitaire + filiere (+ semestre pour les relevés)."""
+        annee_universitaire + filiere (+ semestre pour les relevés, + niveau pour
+        cibler une seule promotion quand la filière en porte plusieurs)."""
         d           = request.data or {}
         type_doc    = d.get('type_document', '')
         annee       = d.get('annee_universitaire')
         filiere_id  = d.get('filiere')
         semestre_id = d.get('semestre') or None
+        niveau      = d.get('niveau') or None
 
         _check_doc_module(request.user, type_doc, action='modifier')
 
@@ -124,18 +126,31 @@ class DocumentOfficielViewSet(InstitutionScopedMixin, viewsets.ReadOnlyModelView
         if not annee or not filiere_id:
             return Response({'detail': "annee_universitaire et filiere sont requis."},
                             status=status.HTTP_400_BAD_REQUEST)
+        if niveau is not None:
+            try:
+                niveau = int(niveau)
+            except (TypeError, ValueError):
+                return Response({'detail': "niveau doit être un entier (1, 2, 3…)."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if niveau < 1:
+                return Response({'detail': "niveau doit être ≥ 1."},
+                                status=status.HTTP_400_BAD_REQUEST)
 
         from .services import generer_documents_groupe
         try:
             pdf_bytes, nb_ok, nb_total, erreurs = generer_documents_groupe(
                 type_doc, annee, int(filiere_id),
                 int(semestre_id) if semestre_id else None, request.user,
+                niveau=niveau,
             )
         except ValueError as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         from django.http import HttpResponse
-        # Nom : type_semestre_filiere_annee (ex. releve_semestre_S5_SDID_2025_2026.pdf).
+        # Nom : type_semestre_filiere_niveau_annee
+        # (ex. attestation_inscription_LPSEA_L2_2026_2027.pdf). Le niveau figure dans
+        # le nom : deux promotions d'une meme filiere produiraient sinon deux fichiers
+        # homonymes qui s'ecrasent au telechargement.
         from apps.scolarite.models import Filiere
         from apps.parametres.models import Semestre
         _fil = Filiere.objects.filter(pk=filiere_id).first()
@@ -144,7 +159,9 @@ class DocumentOfficielViewSet(InstitutionScopedMixin, viewsets.ReadOnlyModelView
         if semestre_id:
             _sem = Semestre.objects.filter(pk=semestre_id).first()
             sem_code = _sem.code_semestre if _sem else str(semestre_id)
-        fname = '_'.join(p for p in (type_doc, sem_code, fil_code, (annee or '').replace('-', '_')) if p) + '.pdf'
+        niv_code = f'L{niveau}' if niveau else ''
+        fname = '_'.join(p for p in (type_doc, sem_code, fil_code, niv_code,
+                                     (annee or '').replace('-', '_')) if p) + '.pdf'
         resp = HttpResponse(pdf_bytes, content_type='application/pdf')
         resp['Content-Disposition'] = f'inline; filename="{fname}"'
         resp['X-Generated'] = str(nb_ok)
