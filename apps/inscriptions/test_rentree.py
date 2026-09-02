@@ -257,6 +257,45 @@ class TestTotaux:
         assert r.data['semaines_saisies'] == 2
 
 
+class TestReferentielIndependantDuPrefixe:
+    """Le rapprochement niveau ↔ groupe ne présume pas du préfixe.
+
+    L'ISS nomme ses niveaux « L1, L2, L3 » ; d'autres instances du même code les
+    nomment « E1, E2, E3 », et l'une d'elles « MP » / « MPSI ». Écrire
+    `f'L{n}'` marcherait ici et nulle part ailleurs.
+    """
+
+    def test_le_chiffre_se_lit_quel_que_soit_le_prefixe(self):
+        from apps.inscriptions.views_rentree import _annee_etude_du_libelle
+        assert _annee_etude_du_libelle('L3') == 3
+        assert _annee_etude_du_libelle('E3') == 3
+        assert _annee_etude_du_libelle('M1') == 1
+        assert _annee_etude_du_libelle(' L 2 ') == 2
+
+    def test_un_libelle_sans_annee_ne_designe_aucune_annee_d_etude(self):
+        from apps.inscriptions.views_rentree import _annee_etude_du_libelle
+        for libelle in ('Transversal', 'MP', 'MPSI', '', None):
+            assert _annee_etude_du_libelle(libelle) is None
+
+    def test_un_groupe_nomme_a_l_esp_est_bien_rapproche(self, client_scolarite, monde):
+        """Un référentiel en « E » doit fonctionner sans toucher au code."""
+        from apps.departement.models import Departement
+        from apps.parametres.models import Niveau
+
+        # On renomme L2 en E2 : la cohorte LPSEA L2 doit rester rapprochee.
+        Niveau.objects.filter(pk=monde['l2'].pk).update(niveau='E2')
+        Departement.objects.create(
+            nom='LPSEA E2', annee_universitaire='2026-2027',
+            institution=monde['inst'], filiere=monde['lpsea'],
+            niveau=monde['l2'], groupe='', is_container=False)
+
+        r = client_scolarite.get(URL, {'annee': monde['cible'].pk})
+        c = next(x for x in r.data['cohortes']
+                 if x['filiere']['code'] == 'LPSEA' and x['niveau'] == 2)
+        assert c['etat'] == 'a_affecter', "le groupe « E2 » n'a pas ete rapproche"
+        assert c['niveau_code'] == 'E2', "le libelle affiche doit etre celui du referentiel"
+
+
 # ── Choix automatique de l'année ────────────────────────────────────────────
 
 class TestChoixDeLAnnee:

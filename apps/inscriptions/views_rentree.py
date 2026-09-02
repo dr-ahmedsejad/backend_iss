@@ -24,6 +24,7 @@ groupe. Y écrire le groupe de N+1 au moment de l'exécution — en juillet —
 son pointage. Et le partage d'une promotion entre G1 et G2 est une décision
 pédagogique qu'aucun service ne peut deviner.
 """
+import re
 from collections import defaultdict
 
 from rest_framework import status
@@ -39,14 +40,39 @@ ETAT_PARTIEL     = 'partiel'
 ETAT_COMPLET     = 'complet'
 
 
-def _code_niveau(niveau_int) -> str:
-    """1 → « L1 ». La convention du projet, pas une invention.
+_CHIFFRE_DU_NIVEAU = re.compile(r'^\s*[A-Za-z ]*?(\d+)\s*$')
 
-    Elle est déjà employée par `apps/inscriptions/utils.py`,
-    `apps/absence/serializers.py` et `apps/documents/views.py` : le niveau est un
-    entier sur l'inscription, un libellé sur `parametres.Niveau`.
+
+def _annee_etude_du_libelle(libelle: str):
+    """« L3 » → 3, « E2 » → 2. `None` si le libellé ne porte pas d'année.
+
+    `InscriptionAdministrative.niveau` est une ANNÉE D'ÉTUDE (1, 2, 3) ;
+    `parametres.Niveau` porte un LIBELLÉ. Il faut donc rapprocher les deux, et
+    **sans présumer du préfixe** : l'ISS nomme ses niveaux « L1, L2, L3 », mais
+    d'autres instances du même code les nomment « E1, E2, E3 », voire « MP » et
+    « MPSI » — qui ne portent aucune année et n'en désignent donc aucune.
+
+    Écrire `f'L{n}'` marcherait ici et nulle part ailleurs. « Transversal » rend
+    `None`, ce qui est juste : ce n'est pas une année d'étude.
     """
-    return f'L{niveau_int}' if niveau_int else ''
+    trouve = _CHIFFRE_DU_NIVEAU.match(libelle or '')
+    return int(trouve.group(1)) if trouve else None
+
+
+def _libelles_par_annee_etude() -> dict:
+    """{3: « L3 »} — le libellé RÉEL du référentiel, pour l'affichage.
+
+    On ne fabrique pas « L3 » : on va le chercher. L'écran doit dire « E3 » là
+    où l'établissement dit « E3 ».
+    """
+    from apps.parametres.models import Niveau
+
+    par_annee = {}
+    for n in Niveau.objects.order_by('id'):
+        a = _annee_etude_du_libelle(n.niveau)
+        if a is not None:
+            par_annee.setdefault(a, n.niveau)
+    return par_annee
 
 
 def _etat(effectif: int, affectes: int, nb_groupes: int) -> str:
@@ -105,8 +131,10 @@ def _groupes_de_l_annee(annee):
               .filter(annee_universitaire=annee.annee, is_container=False)
               .select_related('filiere', 'niveau')
               .order_by('nom')):
-        code = d.niveau.niveau if d.niveau_id else ''
-        par_cle[(d.filiere_id, code)].append(d)
+        # La clé est l'ANNÉE D'ÉTUDE lue sur le libellé, jamais le libellé
+        # lui-même : « L2 » ici, « E2 » ailleurs, c'est la même deuxième année.
+        annee_etude = _annee_etude_du_libelle(d.niveau.niveau if d.niveau_id else '')
+        par_cle[(d.filiere_id, annee_etude)].append(d)
     return par_cle
 
 
@@ -196,13 +224,16 @@ class RentreeView(APIView):
                 'cohortes': [], 'groupes_sans_effectif': [], 'semaines_saisies': 0,
             })
 
-        groupes = _groupes_de_l_annee(annee)
+        groupes  = _groupes_de_l_annee(annee)
+        libelles = _libelles_par_annee_etude()
         cohortes, servies = [], set()
         total_inscrits = total_affectes = 0
 
         for ligne in _cohortes_brutes(annee):
-            code = _code_niveau(ligne['niveau'])
-            cle  = (ligne['filiere_id'], code)
+            # Le libellé du référentiel quand il existe ; sinon on écrit
+            # l'année d'étude telle quelle plutôt que d'inventer un préfixe.
+            code = libelles.get(ligne['niveau'], str(ligne['niveau'] or ''))
+            cle  = (ligne['filiere_id'], ligne['niveau'])
             servies.add(cle)
             candidats = groupes.get(cle, [])
             effectif, affectes = ligne['effectif'], ligne['affectes']
@@ -229,10 +260,10 @@ class RentreeView(APIView):
         sans_effectif = [
             {'id': d.pk, 'nom': d.nom,
              'filiere_code': d.filiere.code if d.filiere_id else None,
-             'niveau_code': code}
-            for (filiere_id, code), liste in sorted(
-                groupes.items(), key=lambda kv: (str(kv[0][0]), kv[0][1]))
-            if (filiere_id, code) not in servies
+             'niveau_code': d.niveau.niveau if d.niveau_id else ''}
+            for cle_g, liste in sorted(
+                groupes.items(), key=lambda kv: (str(kv[0][0]), str(kv[0][1])))
+            if cle_g not in servies
             for d in liste
         ]
 
