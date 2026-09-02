@@ -12,6 +12,7 @@ from .views_progression import (
     ModifierProgressionView,
     ExecuterReinscriptionsView,
 )
+from .views_rentree import RentreeView
 from .views_etudiant import (
     ReleveAnnuelEtudiantView,
     ProgressionEtudiantView,
@@ -35,6 +36,9 @@ urlpatterns = [
     path('progressions/executer/',             ExecuterReinscriptionsView.as_view(), name='executer-reinscriptions'),
     path('progressions/<int:pk>/',             ModifierProgressionView.as_view(),    name='modifier-progression'),
     path('progressions/',                      ListeProgressionsView.as_view(),      name='liste-progressions'),
+
+    # ── Rentree : ou en est le rattachement des reinscrits ? (lecture seule) ──
+    path('rentree/',                           RentreeView.as_view(),                name='rentree'),
 
     # ── Portail étudiant (lecture seule) ─────────────────────────────────────
     path('etudiant/releve/',                   ReleveAnnuelEtudiantView.as_view(),   name='etudiant-releve'),

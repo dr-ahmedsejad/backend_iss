@@ -35,6 +35,9 @@ INSTALLED_APPS = [
     'apps.departement',
     'apps.em',
     'apps.emplois',
+    # Planification hebdomadaire — s'ajoute A COTE de `apps.emplois`, sans
+    # rien lui retirer. Voir apps/edt/models.py.
+    'apps.edt',
     'apps.parametres',
     'apps.prof',
     'apps.salle',

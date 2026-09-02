@@ -3,7 +3,9 @@ Vues API pour la gestion de la table Progression et l'exécution des réinscript
 
 Endpoints :
   POST   /inscriptions/admin/generer-progressions/    → ProgressionService.generer_progressions()
-  GET    /inscriptions/admin/progressions/            → Liste filtrée par annee_cible
+  GET    /inscriptions/admin/progressions/            → Liste filtrée par annee_cible,
+                                                        décision, statut et filière
+                                                        (source et cible)
   PATCH  /inscriptions/admin/progressions/<pk>/       → ModificationProgressionService.modifier()
   POST   /inscriptions/admin/executer-reinscriptions/ → ReinscriptionService.executer()
 """
@@ -28,6 +30,10 @@ def _serialiser_progression(p: Progression) -> dict:
         'id':              p.pk,
         'matricule':       p.matricule,
         'etudiant':        str(p.etudiant),
+        # Le genre sert à accorder le statut affiché — « Inscrite », « Diplômée ».
+        # Sur 2026-2027, 58 des 141 progressions concernent une étudiante : le
+        # masculin par défaut se remarque.
+        'genre':           p.etudiant.genre,
         'filiere_source':  {'id': p.filiere_source_id, 'code': p.filiere_source.code},
         'filiere_cible':   (
             {'id': p.filiere_cible_id, 'code': p.filiere_cible.code}
@@ -75,11 +81,30 @@ class GenererProgressionsView(APIView):
 
 class ListeProgressionsView(APIView):
     """
-    GET /inscriptions/admin/progressions/?annee_cible=<id>[&decision=<d>][&statut=<s>]
+    GET /inscriptions/admin/progressions/?annee_cible=<id>
+        [&decision=<d>][&statut=<s>][&filiere_source=<id>][&filiere_cible=<id|aucune>]
+
     Liste les progressions pour une année cible, avec filtres optionnels.
+
+    La filière se filtre sur SES DEUX AXES, parce que l'écran sert à deux
+    gestes différents :
+
+      * `filiere_source` — traiter une promotion à la fois. C'est la filière
+        d'origine de l'étudiant, celle du PV, et elle ne change pas ;
+      * `filiere_cible` — relire une orientation déjà posée. La valeur
+        spéciale `aucune` isole les progressions NON ORIENTÉES, celles dont
+        `filiere_cible` est vide : ce sont précisément celles que
+        `ReinscriptionService.executer` saute en silence, et le seul moyen de
+        les retrouver était de parcourir la liste à l'œil.
     """
     permission_classes = [RBACPermission]
     required_module    = 'insc_progression'
+
+    # Ce que l'on écrit dans `filiere_cible` pour demander les non orientés.
+    # Un identifiant ne peut pas exprimer « aucun », et `filiere_cible=` vide
+    # est indistinguable d'un filtre absent — c'est la même chaîne que le
+    # navigateur enverrait pour « Toutes les filières ».
+    CIBLE_NON_ORIENTES = 'aucune'
 
     def get(self, request):
         annee_id = request.query_params.get('annee_cible')
@@ -103,6 +128,26 @@ class ListeProgressionsView(APIView):
             qs = qs.filter(decision=decision)
         if statut := request.query_params.get('statut'):
             qs = qs.filter(statut=statut)
+
+        if source := request.query_params.get('filiere_source'):
+            if not str(source).isdigit():
+                return Response(
+                    {'error': 'filiere_source doit être un identifiant.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            qs = qs.filter(filiere_source_id=source)
+
+        cible = request.query_params.get('filiere_cible')
+        if cible == self.CIBLE_NON_ORIENTES:
+            qs = qs.filter(filiere_cible__isnull=True)
+        elif cible:
+            if not str(cible).isdigit():
+                return Response(
+                    {'error': "filiere_cible doit être un identifiant "
+                              f"ou « {self.CIBLE_NON_ORIENTES} »."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            qs = qs.filter(filiere_cible_id=cible)
 
         return Response([_serialiser_progression(p) for p in qs])
 

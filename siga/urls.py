@@ -10,6 +10,10 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, Sp
 
 from core.media_auth import MediaAuthView
 
+# La generation du suivi projette d'abord la semaine reclamee. Voir plus bas
+# pour la capture d'URL, et apps/edt/generation.py pour ce qu'elle supprime.
+from apps.edt.generation import SuivieAvecProjectionViewSet
+
 urlpatterns = [
     # Admin Django
     path('admin/', admin.site.urls),
@@ -27,6 +31,17 @@ urlpatterns = [
     path('api/v1/profs/',       include('apps.prof.urls')),
     path('api/v1/prof-type-history/', include('apps.prof.history_urls')),
     path('api/v1/emplois/',     include('apps.emplois.urls')),
+    # Planification hebdomadaire (nouveau moteur). Les ecrans du socle
+    # ci-dessus restent en place et fonctionnels : les deux coexistent.
+    path('api/v1/edt/',         include('apps.edt.urls')),
+    # `suivies/ajouter/` est capte AVANT le routeur du socle : Django resout
+    # dans l'ordre de cette liste, la premiere route qui correspond gagne. La
+    # vue heritee projette la semaine RECLAMEE PAR LA REQUETE, puis delegue au
+    # socle, qui n'est pas modifie.
+    # Voir apps/edt/generation.py pour la panne que cela supprime.
+    path('api/v1/suivi/suivies/ajouter/',
+         SuivieAvecProjectionViewSet.as_view({'post': 'ajouter_suivie'}),
+         name='suivie-ajouter'),
     path('api/v1/suivi/',       include('apps.suivi.urls')),
     path('api/v1/absences/',    include('apps.absence.urls')),
     path('api/v1/vacations/',   include('apps.vacation.urls')),
