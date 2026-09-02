@@ -127,18 +127,24 @@ def _totaux(annee):
 
 
 def _annee_a_preparer():
-    """L'année dont la rentrée reste à préparer.
+    """L'année dont la rentrée est à préparer : **la plus récente**, un point.
 
-    La plus récente qui a des inscriptions et dont le rattachement est
-    incomplet ; à défaut, la plus récente qui a des inscriptions. Ce choix
-    automatique est ce qui permet au bandeau de s'allumer sans réglage, puis de
-    s'éteindre tout seul — et de revenir l'année suivante sans qu'on y pense.
+    Celle qui a des inscriptions et dont l'année est la plus grande — qu'elle
+    soit terminée ou non. Si elle est complète, il n'y a rien à signaler et le
+    bandeau s'éteint ; l'écran affiche « la rentrée est prête ».
 
-    **On ne remonte jamais dans le passé, et c'est essentiel.** Un étudiant n'a
-    qu'un seul `departement`, sans année : dès qu'il monte d'année, il « quitte »
-    rétroactivement la précédente. Toute année révolue paraît donc incomplète —
-    2024-2025 affiche 51 rattachés sur 103, 2025-2026 en affiche 43 sur 141 — et
-    ce chiffre ne veut rien dire. Seule la plus récente est interprétable.
+    **On ne remonte JAMAIS dans le passé**, et c'est le point délicat. Un
+    étudiant n'a qu'un seul `departement`, sans année : dès qu'il monte d'année,
+    il « quitte » rétroactivement la précédente. Toute année révolue paraît donc
+    incomplète — 2025-2026 affiche 0 rattachés sur 141, 2024-2025 en affiche 2
+    sur 103 — et ce chiffre ne veut rien dire.
+
+    Une version précédente cherchait « la plus récente qui soit INCOMPLÈTE », et
+    se rabattait sur les suivantes. Le jour où 2026-2027 est passée à 100 sur
+    100, elle a donc reculé jusqu'à 2025-2026 et annoncé 141 étudiants à
+    affecter — une rentrée faite depuis un an. Le garde-fou était décrit ici
+    sans être appliqué plus bas : il l'est maintenant.
+
     Le paramètre `?annee=` reste accepté pour un examen délibéré ou pour les
     tests ; aucun écran n'y renvoie.
     """
@@ -149,12 +155,7 @@ def _annee_a_preparer():
         InscriptionAdministrative.objects.values_list('annee_univ_id', flat=True))
     if not avec_inscrits:
         return None
-    candidates = list(Year.objects.filter(pk__in=avec_inscrits).order_by('-annee'))
-    for annee in candidates:
-        total, affectes = _totaux(annee)
-        if total and affectes < total:
-            return annee
-    return candidates[0] if candidates else None
+    return Year.objects.filter(pk__in=avec_inscrits).order_by('-annee').first()
 
 
 class RentreeView(APIView):

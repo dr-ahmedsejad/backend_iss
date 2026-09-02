@@ -269,6 +269,44 @@ class TestChoixDeLAnnee:
         assert r.data['annee']['annee'] == '2026-2027'
         assert r.data['choisie_automatiquement'] is True
 
+    def test_le_serveur_ne_REMONTE_JAMAIS_dans_le_passe(self, client_scolarite, monde):
+        """Régression du 02/09/2026.
+
+        Le jour où la rentrée la plus récente a été terminée, l'ancienne version
+        — qui cherchait « la plus récente qui soit INCOMPLÈTE » — a reculé d'un
+        an et annoncé 141 étudiants à affecter pour une rentrée faite depuis
+        longtemps. Un étudiant n'ayant qu'un seul groupe, sans année, toute
+        année révolue est structurellement incomplète : elle ne doit jamais être
+        proposée.
+        """
+        from apps.absence.models import Etudiant
+        from apps.departement.models import Departement
+
+        # On termine l'année cible : plus rien à préparer en 2026-2027.
+        cible_lpsea = Departement.objects.create(
+            nom='LPSEA L2', annee_universitaire='2026-2027',
+            institution=monde['inst'], filiere=monde['lpsea'],
+            niveau=monde['l2'], groupe='', is_container=False)
+        for etu in Etudiant.objects.all():
+            ia = etu.inscriptions_admin.first()
+            etu.departement = (
+                cible_lpsea if ia.filiere_id == monde['lpsea'].pk
+                else monde['depts']['stat_g1'] if ia.filiere_id == monde['stat'].pk
+                else monde['depts']['sea'])
+            etu.save(update_fields=['departement'])
+
+        # L'annee PRECEDENTE, elle, a des inscrits que personne n'a rattaches.
+        from apps.inscriptions.models import InscriptionAdministrative
+        etu = Etudiant.objects.first()
+        InscriptionAdministrative.objects.create(
+            etudiant=etu, annee_univ=monde['precedent'], filiere=monde['stat'],
+            niveau=1, institution=monde['inst'], numero_inscription='INS-VIEUX')
+
+        r = client_scolarite.get(URL)
+        assert r.data['annee']['annee'] == '2026-2027', (
+            "le serveur a recule sur une annee revolue")
+        assert r.data['total_affectes'] == r.data['total_inscrits']
+
     def test_avec_parametre_le_serveur_le_respecte(self, client_scolarite, monde):
         r = client_scolarite.get(URL, {'annee': monde['precedent'].pk})
         assert r.data['annee']['annee'] == '2025-2026'
