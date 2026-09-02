@@ -209,6 +209,33 @@ class TestCiblesLegitimes:
         assert noms == {'G1', 'G2'}
         assert 'STAT L1' not in noms
 
+    def test_un_etudiant_reste_dans_un_conteneur_n_est_pas_rattache(
+            self, client_scolarite, monde):
+        """Le conteneur est l'endroit où l'on atterrit AVANT d'être réparti.
+
+        Découvert sur une instance voisine : deux inscrits en IG L1, un dans le
+        vrai groupe, l'autre encore dans le conteneur d'admission — et la
+        cohorte s'affichait « complet ». Le travail restant devenait invisible.
+        """
+        from apps.absence.models import Etudiant
+        from apps.departement.models import Departement
+
+        conteneur = Departement.objects.create(
+            nom='SEA_26_27', annee_universitaire='2026-2027',
+            institution=monde['inst'], filiere=monde['sea'],
+            niveau=monde['l3'], groupe='', is_container=True)
+        # Les deux inscrits de SEA L3 : un dans le vrai groupe, un au conteneur.
+        etus = list(Etudiant.objects.filter(inscriptions_admin__filiere=monde['sea']))
+        etus[0].departement = monde['depts']['sea']
+        etus[0].save(update_fields=['departement'])
+        etus[1].departement = conteneur
+        etus[1].save(update_fields=['departement'])
+
+        r = client_scolarite.get(URL, {'annee': monde['cible'].pk})
+        c = _par_filiere(r)['SEA L3']
+        assert c['affectes'] == 1, "le conteneur ne doit pas compter comme rattachement"
+        assert c['etat'] == 'partiel'
+
     def test_les_groupes_sans_effectif_sont_listes(self, client_scolarite, monde):
         """Pas une erreur — mais on veut le savoir en cherchant pourquoi une
         cohorte n'a nulle part où aller."""

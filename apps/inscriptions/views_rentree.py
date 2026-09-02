@@ -99,9 +99,17 @@ def _cohortes_brutes(annee):
     Une ligne par étudiant : `InscriptionAdministrative` est unique par
     (étudiant, année).
 
-    « Affecté » se lit sur une seule chose — le groupe de l'étudiant appartient à
-    l'année visée. C'est le seul signal disponible, `Etudiant.departement` n'ayant
-    pas d'année, et c'est précisément le fond du problème.
+    « Rattaché » se lit sur deux conditions, et la seconde a été apprise sur
+    les données : le groupe de l'étudiant appartient à l'année visée, ET ce
+    n'est PAS un conteneur d'inscription. Le conteneur est précisément l'endroit
+    où l'on atterrit **avant** d'être réparti — y compter un étudiant comme
+    rattaché ferait afficher « complet » à une cohorte dont personne n'a encore
+    été dispatché. C'est ce qu'une instance voisine a montré : deux inscrits en
+    IG L1, un dans le vrai groupe, l'autre encore dans `IG_26_27`, et la cohorte
+    s'annonçait terminée.
+
+    C'est le seul signal disponible, `Etudiant.departement` n'ayant pas d'année,
+    et c'est précisément le fond du problème.
     """
     from django.db.models import Count, Q
 
@@ -113,7 +121,8 @@ def _cohortes_brutes(annee):
             .annotate(
                 effectif=Count('id'),
                 affectes=Count('id', filter=Q(
-                    etudiant__departement__annee_universitaire=annee.annee)),
+                    etudiant__departement__annee_universitaire=annee.annee,
+                    etudiant__departement__is_container=False)),
             )
             .order_by('filiere__code', 'niveau'))
 
@@ -149,7 +158,8 @@ def _totaux(annee):
            .aggregate(
                total=Count('id'),
                affectes=Count('id', filter=Q(
-                   etudiant__departement__annee_universitaire=annee.annee)),
+                   etudiant__departement__annee_universitaire=annee.annee,
+                   etudiant__departement__is_container=False)),
            ))
     return agg['total'] or 0, agg['affectes'] or 0
 
