@@ -40,9 +40,16 @@ URL_GRILLE      = '/api/v1/edt/grilles/'
 
 
 @pytest.fixture
-def monde(db):
+def monde(db, settings):
     """La structure de l'ISS : deux filières, des groupes de TD, deux
     enseignements transversaux."""
+    # Le socle refuse à un non-administrateur la génération d'une semaine
+    # close depuis plus de `SUIVI_GRACE_DAYS_AFTER_WEEK_END` jours — valeur
+    # lue dans le `.env` de la machine, 0 par défaut. Les semaines du décor
+    # ne comptent que trois jours : dès le jeudi, la première est close, et
+    # les tests du directeur des études tombaient selon le poste et le jour.
+    # On épingle ici une semaine de grâce : le décor ne dépend plus du `.env`.
+    settings.SUIVI_GRACE_DAYS_AFTER_WEEK_END = 7
     from apps.departement.models import Departement
     from apps.em.models import EM
     from apps.modules.models import Module as ModuleLMD

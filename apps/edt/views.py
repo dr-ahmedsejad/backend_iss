@@ -33,6 +33,7 @@ from .serializers import (EmploiArchiveSerializer, GrilleTypeListSerializer,
 # `partager` est renommé : l'action de la vue porte le même nom, et deux
 # `partager` dans un fichier finissent par se confondre à la lecture.
 from .services.partage import partager as etendre_partage
+from .services.permutation import permuter_enseignants
 from .services.archive import archiver_semaine
 from .services.coherence import (ETAT_DIVERGENT, LIBELLES,
                                  etats_en_lot)
@@ -370,6 +371,35 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
         # Supprimer une séance partagée retire SON groupe du cours, pas le cours.
         retirer_du_partage(instance)
 
+    @action(detail=False, methods=['post'], url_path='permuter')
+    def permuter(self, request):
+        """
+        Échange deux séances d'un même créneau : enseignant, salle, élément.
+
+        POST { "seance_a": 12, "seance_b": 15, "nb_semaines": 1, "motif": "" }
+
+        Le geste d'IPGEI, sans son circuit d'approbation : l'ISS n'a qu'un
+        planificateur. Les deux séances sont cherchées dans le PÉRIMÈTRE de
+        l'appelant — une séance d'un groupe qui ne lui est pas délégué n'existe
+        pas pour lui. Voir `services/permutation.py` pour ce qui s'échange et ce
+        qui est retenu.
+        """
+        d = request.data
+        try:
+            ida, idb = int(d.get('seance_a')), int(d.get('seance_b'))
+        except (TypeError, ValueError):
+            raise ValidationError('Indiquez les deux séances à échanger.')
+
+        qs = self.get_queryset()
+        a = qs.filter(pk=ida).first()
+        b = qs.filter(pk=idb).first()
+        if a is None or b is None:
+            raise ValidationError('Séance introuvable, ou hors de votre périmètre.')
+
+        n = permuter_enseignants(a, b, d.get('nb_semaines', 1),
+                                 (d.get('motif') or '').strip())
+        return Response({'seances_impactees': n})
+
     @action(detail=True, methods=['post'], url_path='partager')
     def partager(self, request, pk=None):
         """
@@ -572,8 +602,35 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
         titre, axe_label, groupe = '', 'Filière', None
         if p.get('departement'):
             qs = qs.filter(departement_id=p['departement'])
-            groupe = Departement.objects.filter(pk=p['departement']).first()
-            titre = groupe.nom if groupe else ''
+            groupe = (Departement.objects.select_related('filiere')
+                      .filter(pk=p['departement']).first())
+            # « Filière : G1 » ne disait pas de quelle filière. On imprime
+            # l'INTITULÉ de la filière, puis le groupe — « Licence
+            # Professionnelle Statistique — G1 ». Un groupe sans filière (HE,
+            # ST) ne porte que son nom : il n'y a rien à mettre devant.
+            #
+            # Et quand la filière n'a QU'UN groupe à ce niveau, le nom du
+            # groupe n'apprend rien : « Science des Données — SDID » répète,
+            # « Statistique… — SEA » n'aide personne. Seul l'intitulé reste.
+            # Pas l'année d'étude non plus : la ligne du dessous porte déjà le
+            # semestre — « Semestre S3 » dit L2, « S5 » dit L3 — et la répéter
+            # ici serait la dire deux fois.
+            if groupe is None:
+                titre = ''
+            elif groupe.filiere_id and groupe.filiere:
+                intitule = groupe.filiere.intitule_fr or groupe.filiere.code or ''
+                freres = Departement.objects.filter(
+                    annee_universitaire=groupe.annee_universitaire,
+                    filiere_id=groupe.filiere_id, niveau_id=groupe.niveau_id,
+                    is_container=False).count()
+                if not intitule:
+                    titre = groupe.nom
+                elif freres <= 1:
+                    titre = intitule
+                else:
+                    titre = f'{intitule} — {groupe.nom}'
+            else:
+                titre = groupe.nom
         elif p.get('prof'):
             qs = qs.filter(prof_id=p['prof'])
             x = Prof.objects.filter(pk=p['prof']).first()

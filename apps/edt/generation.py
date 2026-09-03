@@ -43,6 +43,21 @@ class SuivieAvecProjectionViewSet(SuivieViewSet):
     « ajouter ». On surcharge donc le nom Python, pas celui de l'URL.
     """
 
+    @staticmethod
+    def _semaines_posterieures(annee, ts, numero, perimetre):
+        """Les numéros de semaine déjà générés APRÈS `numero`, dans l'ordre.
+
+        Bornés au périmètre de l'appelant quand il en a un : un directeur des
+        études n'est pas bloqué par la génération d'un autre sur des groupes
+        qui ne sont pas les siens. L'administrateur voit tout.
+        """
+        from apps.suivi.models import Suivie
+        qs = Suivie.objects.filter(annee_universitaire=annee, type_semestre=ts,
+                                   numero_semaine__gt=numero)
+        if perimetre is not None:
+            qs = qs.filter(departement_id__in=list(perimetre))
+        return sorted(set(qs.values_list('numero_semaine', flat=True)))
+
     def ajouter_suivie(self, request, *args, **kwargs):
         d     = request.data
         annee = d.get('annee_universitaire')
@@ -61,6 +76,29 @@ class SuivieAvecProjectionViewSet(SuivieViewSet):
             # LIRE puis SUPPRIMER `Emplois`. Le prendre ici garantit que l'on
             # projette précisément ce qui sera lu — ni plus, ni moins.
             perimetre = self.user_dept_ids()      # None = aucune borne (admin)
+
+            # Le suivi se génère dans l'ordre des semaines, et se corrige en
+            # reculant depuis la dernière. Régénérer la semaine 1 quand la 2
+            # existe déjà réécrirait un pointage sur lequel la suite s'appuie
+            # — absences, rattrapages, vacations — sans que rien ne le dise.
+            # Pour refaire la 1, on supprime d'abord la 2 : le geste est
+            # visible, et il retire ce qui dépendait du pointage réécrit.
+            posterieures = self._semaines_posterieures(annee, ts, numero, perimetre)
+            if posterieures:
+                from rest_framework import status
+                from rest_framework.response import Response
+                liste = ', '.join(str(n) for n in posterieures)
+                return Response({
+                    'detail': (
+                        f"La semaine {numero} ne peut plus être générée : la "
+                        f"{'semaine' if len(posterieures) == 1 else 'semaines'} "
+                        f"{liste} l'{'a' if len(posterieures) == 1 else 'ont'} "
+                        f"déjà été. Le suivi se refait en reculant depuis la "
+                        f"dernière semaine : supprimez d'abord la "
+                        f"{'semaine' if len(posterieures) == 1 else 'semaines'} "
+                        f"{liste}."),
+                    'semaines_posterieures': posterieures,
+                }, status=status.HTTP_409_CONFLICT)
             if perimetre is None or perimetre:
                 # Pas de purge préalable ici, contrairement à l'ESP.
                 #

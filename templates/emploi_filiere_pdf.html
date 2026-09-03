@@ -126,13 +126,14 @@ td.rouge  + td.rouge + td.rouge::before {
 {% include '_institution_header.html' %}
 
 <h2>Emplois du temps {{annee_universitaire}}</h2>
-{# `axe_label` nomme l'axe de lecture — Filière, Enseignant, Salle. Il est
-   FACULTATIF et retombe sur « Filière », qui est ce que le gabarit portait en
-   dur : les appels du socle (apps/emplois/views.py) ne le passent pas et
-   continuent donc d'imprimer exactement la même chose. Le moteur hebdomadaire,
-   lui, réutilise ce gabarit pour ses trois axes — un second gabarit
-   divergerait au premier changement d'en-tête, et deux emplois du temps
-   imprimés côte à côte ne se ressembleraient plus. #}
+{% comment %}
+`axe_label` nomme l'axe de lecture — Filière, Enseignant, Salle. Facultatif :
+il retombe sur « Filière », ce que le gabarit portait en dur, et les appels du
+socle (apps/emplois/views.py) qui ne le passent pas impriment donc la même
+chose qu'avant. Le moteur hebdomadaire réutilise ce gabarit pour ses trois
+axes. (Un commentaire `{# #}` ne tient que sur UNE ligne : sur plusieurs, il
+n'est pas reconnu et s'imprime dans le PDF.)
+{% endcomment %}
 <h4>{{ axe_label|default:"Filière" }} : {{ departement }}</h4>
 {% if semaine %}
 <h4>{{ semestre_nom }} : Semaine n°{{ semaine }} du {{ debut }} au {{ fin }}</h4>
