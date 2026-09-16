@@ -77,7 +77,8 @@ def _wkhtmltopdf():
     sep = chr(92)
     return sep.join(['C:', 'Program Files', 'wkhtmltopdf', 'bin', 'wkhtmltopdf.exe'])
 from .services.partage import propager, retirer_du_partage
-from .services.planification import (dupliquer_grille, projeter_semaine,
+from .services.planification import (dupliquer_grille, dupliquer_semaine,
+                                     projeter_semaine, reprendre_semaine,
                                      semaines_du_lot)
 
 
@@ -177,14 +178,31 @@ class GrilleTypeViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelViewSe
     @action(detail=True, methods=['post'], url_path='dupliquer')
     def dupliquer(self, request, pk=None):
         """
-        Pose le patron sur les semaines demandées.
+        Pose un emploi du temps sur les semaines demandées — depuis DEUX sources.
 
-        POST { "numeros": [1,2,3] }            — des semaines précises
-        POST { "depuis": 3, "nombre": 5 }      — cinq semaines à partir de la 3ᵉ
-        POST { }                               — tout le semestre
-        Option { "ecraser": true } — rétablit le patron LÀ OÙ il avait été
-        dupliqué, jamais sur une édition manuelle ni une permutation.
+        POST { "source": "patron" }                   — la grille type (défaut)
+        POST { "source": "semaine", "semaine_source": 1 }
+                                                      — une semaine déjà bâtie
+
+        Le lot de semaines cibles se désigne de trois façons, comme avant :
+          { "numeros": [1,2,3] } · { "depuis": 3, "nombre": 5 } · { } (tout)
+
+        Option { "ecraser": true } : reprend ce qu'une DUPLICATION avait posé —
+        patron ou recopie — jamais une saisie manuelle ni une permutation.
+
+        Une seule action pour les deux sources, délibérément : deux chemins
+        concurrents pour remplir un emploi du temps finiraient par se
+        contredire.
+
+        Le lot cible est calculé dans l'année et la parité de CETTE grille, et
+        la semaine source y est cherchée de la même façon : source et cibles
+        partagent donc toujours le même espace de semaines. À l'ISS une ligne
+        `Semaine` est identifiée par (année, parité, numéro) — deux semestres de
+        même parité partagent leurs semaines, et il n'y a pas d'autre axe à
+        contraindre.
         """
+        from apps.parametres.models import Semaine
+
         grille = self.get_object()
         semaines = list(semaines_du_lot(
             grille.annee_universitaire, grille.type_semestre,
@@ -198,10 +216,86 @@ class GrilleTypeViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelViewSe
                            "Générez d'abord le calendrier dans Paramètres → Semaines."},
                 status=status.HTTP_400_BAD_REQUEST)
 
-        resultat = dupliquer_grille(grille, semaines,
-                                    ecraser=bool(request.data.get('ecraser')))
-        resultat['semaines'] = sorted({s.numero_semaine for s in semaines
-                                       if s.numero_semaine is not None})
+        ecraser = bool(request.data.get('ecraser'))
+        source = (request.data.get('source') or 'patron').strip().lower()
+
+        if source == 'semaine':
+            numero = request.data.get('semaine_source')
+            try:
+                numero = int(numero)
+            except (TypeError, ValueError):
+                return Response(
+                    {'detail': 'Indiquez la semaine à recopier (`semaine_source`).'},
+                    status=status.HTTP_400_BAD_REQUEST)
+            # N'importe laquelle de ses lignes-jour suffit : elles portent toutes
+            # l'année, la parité et le numéro qui identifient la semaine.
+            ligne_source = Semaine.objects.filter(
+                annee_universitaire=grille.annee_universitaire,
+                type_semestre=grille.type_semestre,
+                numero_semaine=numero).first()
+            if ligne_source is None:
+                return Response(
+                    {'detail': "La semaine %s n'existe pas dans le calendrier de "
+                               "cette période." % numero},
+                    status=status.HTTP_400_BAD_REQUEST)
+            resultat = dupliquer_semaine(grille.departement, ligne_source,
+                                         semaines, ecraser=ecraser)
+            resultat['source'] = 'semaine'
+            resultat['semaine_source'] = numero
+            touchees = {s.numero_semaine for s in semaines
+                        if s.numero_semaine not in (None, numero)}
+        elif source == 'patron':
+            resultat = dupliquer_grille(grille, semaines, ecraser=ecraser)
+            resultat['source'] = 'patron'
+            touchees = {s.numero_semaine for s in semaines
+                        if s.numero_semaine is not None}
+        else:
+            return Response(
+                {'detail': "`source` attend « patron » ou « semaine »."},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        resultat['semaines'] = sorted(touchees)
+        return Response(resultat, status=status.HTTP_200_OK)
+
+
+    @action(detail=True, methods=['post'], url_path='reprendre-semaine')
+    def reprendre_semaine_action(self, request, pk=None):
+        """
+        Promeut une semaine réelle en patron — le sens inverse de `dupliquer`.
+
+        POST { "semaine_source": 3, "ecraser": false }
+
+        Deux écarts assumés entre la semaine et le patron obtenu : une séance
+        annulée n'entre pas, et une permutation revient à son titulaire. Le
+        compte rendu les chiffre tous les deux.
+
+        La semaine est cherchée d'abord dans la PARITÉ de ce patron, puis sans
+        elle : ainsi une semaine qui n'existe que dans l'autre parité est
+        trouvée, et refusée avec son motif, plutôt que déclarée introuvable.
+        """
+        from apps.parametres.models import Semaine
+
+        grille = self.get_object()
+        try:
+            numero = int(request.data.get('semaine_source'))
+        except (TypeError, ValueError):
+            return Response(
+                {'detail': 'Indiquez la semaine à reprendre (`semaine_source`).'},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        dans_l_annee = Semaine.objects.filter(
+            annee_universitaire=grille.annee_universitaire,
+            numero_semaine=numero)
+        ligne = (dans_l_annee.filter(type_semestre=grille.type_semestre).first()
+                 or dans_l_annee.first())
+        if ligne is None:
+            return Response(
+                {'detail': "La semaine %s n'existe pas dans le calendrier de "
+                           "%s." % (numero, grille.annee_universitaire)},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        resultat = reprendre_semaine(
+            grille, ligne, ecraser=bool(request.data.get('ecraser')))
         return Response(resultat, status=status.HTTP_200_OK)
 
 

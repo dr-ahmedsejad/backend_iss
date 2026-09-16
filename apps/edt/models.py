@@ -128,11 +128,26 @@ class SeanceReelle(models.Model):
     ORIGINE_GRILLE = 'grille'
     ORIGINE_MANUELLE = 'manuelle'
     ORIGINE_PERMUTATION = 'permutation'
+    #: Posée en recopiant une AUTRE semaine — pas le patron.
+    #:
+    #: Elle ne pouvait pas hériter de l'origine de sa source. Une copie de
+    #: séance manuelle aurait porté « manuelle », donc aurait été protégée de
+    #: l'écrasement : recopier à nouveau après avoir corrigé la semaine source
+    #: n'aurait plus rien changé. Et l'étiqueter « grille » aurait menti sur sa
+    #: provenance, rouvrant le défaut que la migration 0002 répare.
+    #:
+    #: Une valeur à elle donne la règle juste : l'écrasement reprend ce qu'une
+    #: DUPLICATION a posé — patron ou semaine — et épargne les saisies et les
+    #: permutations. L'original de la semaine source garde son origine.
+    ORIGINE_RECOPIE = 'recopie'
     ORIGINE_CHOICES = [
         (ORIGINE_GRILLE, 'Dupliquée de la grille type'),
         (ORIGINE_MANUELLE, 'Ajoutée manuellement'),
         (ORIGINE_PERMUTATION, 'Issue d\'une permutation'),
+        (ORIGINE_RECOPIE, 'Recopiée d\'une autre semaine'),
     ]
+    #: Ce qu'une duplication a posé, et qu'elle peut donc reprendre.
+    ORIGINES_DUPLIQUEES = (ORIGINE_GRILLE, ORIGINE_RECOPIE)
 
     departement = models.ForeignKey(
         'departement.Departement', on_delete=models.CASCADE, related_name='seances_edt')
@@ -169,7 +184,13 @@ class SeanceReelle(models.Model):
         help_text="Séances d'un même cours partagé entre plusieurs groupes. "
                   "Vide pour une séance ordinaire.",
     )
-    origine = models.CharField(max_length=12, choices=ORIGINE_CHOICES, default=ORIGINE_GRILLE)
+    # Défaut : MANUELLE. Une séance créée sans préciser son origine vient d'une
+    # saisie — la duplication, elle, pose son origine explicitement. Le défaut
+    # était « grille », et toute saisie à la main en héritait : la promesse de
+    # la case « Rétablir le patron » — « les séances ajoutées à la main ne sont
+    # jamais écrasées » — était alors fausse, et le premier écrasement
+    # détruisait du travail. Voir la migration 0002, qui réétiquette l'existant.
+    origine = models.CharField(max_length=12, choices=ORIGINE_CHOICES, default=ORIGINE_MANUELLE)
     seance_type = models.ForeignKey(
         SeanceType, on_delete=models.SET_NULL, null=True, blank=True, related_name='occurrences')
     # Une séance annulée n'est PAS projetée : il n'y a ni cours à pointer, ni
