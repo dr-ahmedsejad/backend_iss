@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Maquette {{ maquette.filiere.code }}</title>
+    <style>
+        /* TOUT EN NOIR : seul le logo garde ses couleurs. */
+        body { font-family: "Times New Roman", Times, serif; color: #000; font-size: 11px; }
+        h1 { text-align: center; font-size: 17px; margin: 8px 0 14px; }
+        .semestre { page-break-inside: avoid; margin-bottom: 18px; }
+        .niveau   { font-size: 13px; font-weight: bold; margin: 0; }
+        .libelle-semestre { font-size: 12px; font-weight: bold; margin: 2px 0 5px; }
+        .tronc    { font-size: 11px; font-style: italic; font-weight: normal; }
+        table.maquette { width: 100%; border-collapse: collapse; }
+        table.maquette th, table.maquette td {
+            border: 1px solid #000; padding: 3px 4px; vertical-align: middle; color: #000;
+        }
+        table.maquette th { background: #fff; font-weight: bold; text-align: center; }
+        td.nombre { text-align: center; }
+        tr.total td { font-weight: bold; }
+        .ecart  { font-size: 10px; font-style: italic; margin: 3px 0 0; }
+        .note   { font-size: 10px; font-style: italic; margin-top: 10px; }
+    </style>
+</head>
+<body>
+{% include '_institution_header.html' %}
+
+<h1>Filière {{ maquette.filiere.intitule }} ({{ maquette.filiere.code }})</h1>
+
+{% for s in maquette.semestres %}
+<div class="semestre">
+    <p class="niveau">{{ s.libelle_niveau }}{% if s.tronc_commun %} <span class="tronc">— Tronc commun {{ s.tronc_commun }}</span>{% endif %}</p>
+    <p class="libelle-semestre">{{ s.libelle_semestre }}</p>
+    <table class="maquette">
+        <thead>
+            <tr>
+                <th style="width: 9%;">Module</th>
+                <th style="width: 20%;">Intitulé du Module</th>
+                <th>Éléments du module</th>
+                <th style="width: 6%;">Crédits</th>
+                <th style="width: 6%;">Coeff</th>
+                <th style="width: 5%;">CM</th>
+                <th style="width: 5%;">TD</th>
+                {% if maquette.avec_tp %}<th style="width: 5%;">TP</th>{% endif %}
+                <th style="width: 6%;">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for m in s.modules %}
+            {% if m.elements %}
+                {% for e in m.elements %}
+                <tr>
+                    {% if forloop.first %}
+                    <td rowspan="{{ m.rowspan }}" style="text-align: center;">{{ m.code }}</td>
+                    <td rowspan="{{ m.rowspan }}">{{ m.intitule }}</td>
+                    {% endif %}
+                    <td><strong>{{ e.code }}</strong> {{ e.intitule }}</td>
+                    <td class="nombre">{{ e.credits|default_if_none:"—" }}</td>
+                    <td class="nombre">{{ e.coefficient|default_if_none:"—" }}</td>
+                    <td class="nombre">{{ e.cm }}</td>
+                    <td class="nombre">{{ e.td }}</td>
+                    {% if maquette.avec_tp %}<td class="nombre">{{ e.tp }}</td>{% endif %}
+                    <td class="nombre">{{ e.total }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td style="text-align: center;">{{ m.code }}</td>
+                    <td>{{ m.intitule }}</td>
+                    <td>—</td>
+                    <td class="nombre">—</td>
+                    <td class="nombre">—</td>
+                    <td class="nombre">—</td>
+                    <td class="nombre">—</td>
+                    {% if maquette.avec_tp %}<td class="nombre">—</td>{% endif %}
+                    <td class="nombre">—</td>
+                </tr>
+            {% endif %}
+        {% endfor %}
+            <tr class="total">
+                <td colspan="3" style="text-align: right;">Total</td>
+                <td class="nombre">{{ s.totaux.credits }}</td>
+                <td class="nombre">{{ s.totaux.coefficient }}</td>
+                <td class="nombre">{{ s.totaux.cm }}</td>
+                <td class="nombre">{{ s.totaux.td }}</td>
+                {% if maquette.avec_tp %}<td class="nombre">{{ s.totaux.tp }}</td>{% endif %}
+                <td class="nombre">{{ s.totaux.total }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% for ecart in s.ecarts %}<p class="ecart">{{ ecart }}</p>{% endfor %}
+</div>
+{% endfor %}
+
+{% if maquette.hors_parcours %}
+<p class="note">
+    {{ maquette.hors_parcours|length }} module{{ maquette.hors_parcours|length|pluralize }}
+    rattaché{{ maquette.hors_parcours|length|pluralize }} à cette filière hors de son
+    parcours déclaré ne figure{{ maquette.hors_parcours|length|pluralize:"nt" }} pas dans
+    cette maquette : {{ maquette.hors_parcours|join:", " }}.
+</p>
+{% endif %}
+</body>
+</html>

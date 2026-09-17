@@ -84,6 +84,39 @@ class FiliereViewSet(ModelViewSet):
             qs = qs.filter(est_active=est_active.lower() == 'true')
         return Response(FiliereListSerializer(qs, many=True).data)
 
+    @action(detail=True, methods=['get'], url_path='maquette')
+    def maquette(self, request, pk=None):
+        """
+        GET /api/v1/scolarite/filieres/{id}/maquette/ → la maquette en PDF.
+
+        NE PAS ajouter `maquette` à la liste AllowAny de `get_permissions` :
+        `list` et `retrieve` y sont ouverts pour le formulaire de préinscription,
+        pas pour ce document. Une action absente de cette liste retombe sur
+        `RBACPermission`, qui la mappe sur le droit `scolarite:voir` (défaut
+        d'`ACTION_MAP`) et refuse l'anonyme.
+        """
+        from core.pdf_renderer import render_pdf_response
+        from .maquette import assembler_maquette
+
+        filiere = self.get_object()
+        donnees = assembler_maquette(filiere)
+
+        # Pas de PDF vide : un motif en clair, que le front affiche.
+        propres = [s for s in donnees['semestres'] if not s['tronc_commun']]
+        if not propres:
+            if donnees['hors_parcours']:
+                motif = ("Les modules de la filière %s sont tous hors de son "
+                         "parcours déclaré : il n'y a pas de maquette à "
+                         "télécharger." % filiere.code)
+            else:
+                motif = ("La filière %s n'a encore aucun module : il n'y a pas "
+                         "de maquette à télécharger." % filiere.code)
+            return Response({'detail': motif}, status=status.HTTP_400_BAD_REQUEST)
+
+        return render_pdf_response(
+            'maquette_filiere_pdf.html', {'maquette': donnees},
+            'maquette_%s.pdf' % filiere.code)
+
 
 class ParametresPonderationViewSet(RetrieveModelMixin, UpdateModelMixin, GenericViewSet):
     """
