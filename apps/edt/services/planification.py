@@ -343,7 +343,12 @@ def reprendre_semaine(grille, semaine_source, *, ecraser=False) -> dict:
         .select_related('semaine', 'semaine__jour_fk', 'creneau_fk',
                         'em', 'prof', 'prof_initial', 'salle', 'type_seance_fk'))
 
-    retenues = [s for s in toutes if not s.annulee]
+    # Une séance annulée À CAUSE D'UN FÉRIÉ est un vrai cours du modèle : on la
+    # reprend. L'écarter viderait ce jour du patron — reprendre la semaine du
+    # 28 novembre effacerait le samedi, et de toutes les semaines dupliquées
+    # ensuite. Seule une annulation MANUELLE est un accident de la semaine.
+    retenues = [s for s in toutes
+                if not s.annulee or s.motif_annulation == SeanceReelle.MOTIF_FERIE]
     annulees = len(toutes) - len(retenues)
 
     if not retenues:

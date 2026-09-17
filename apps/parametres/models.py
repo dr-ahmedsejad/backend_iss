@@ -172,6 +172,36 @@ class Ramadan(models.Model):
         return f'Ramadan {self.debut} → {self.fin}'
 
 
+class JourFerieFixe(models.Model):
+    """
+    Un férié qui tombe chaque année à la même date : 1er janvier, 1er mai,
+    28 novembre…
+
+    Les fêtes religieuses suivent le calendrier lunaire et changent de date
+    chaque année : elles ne sont PAS ici, on les marque à la main sur le jour.
+
+    Appliqué automatiquement aux jours du calendrier TOUT JUSTE générés, et à
+    eux seuls : un jour plus ancien laissé en cours l'a peut-être été
+    volontairement (rattrapage, dérogation). Pour les autres, l'action
+    « appliquer au calendrier ».
+    """
+    jour    = models.PositiveSmallIntegerField()
+    mois    = models.PositiveSmallIntegerField()
+    libelle = models.CharField(max_length=100)
+    actif   = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'parametres_jour_ferie_fixe'
+        ordering = ['mois', 'jour']
+        constraints = [
+            models.UniqueConstraint(fields=['jour', 'mois'],
+                                    name='uniq_jour_ferie_fixe_jour_mois'),
+        ]
+
+    def __str__(self):
+        return f'{self.jour:02d}/{self.mois:02d} — {self.libelle}'
+
+
 class Institution(models.Model):
     TYPE_CHOICES = [
         ('universite', 'Université'),

@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Year, Niveau, Semestre, Seance, Creneau, Jour, Semaine, Paiement, Ramadan, Institution
+from .models import (Year, Niveau, Semestre, Seance, Creneau, Jour, Semaine, Paiement,
+                     Ramadan, Institution, JourFerieFixe)
 
 
 class YearSerializer(serializers.ModelSerializer):
@@ -63,6 +64,36 @@ class PaiementSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Paiement
         fields = '__all__'
+
+
+class JourFerieFixeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = JourFerieFixe
+        fields = ['id', 'jour', 'mois', 'libelle', 'actif']
+        # L'unicite (jour, mois) est verifiee dans `validate`, avec un message
+        # lisible ; le validateur automatique de DRF la doublerait.
+        validators = []
+
+    def validate(self, attrs):
+        from .feries import date_valide
+        inst  = self.instance
+        jour  = attrs.get('jour',  inst.jour if inst else None)
+        mois  = attrs.get('mois',  inst.mois if inst else None)
+        if 'libelle' in attrs:
+            attrs['libelle'] = (attrs['libelle'] or '').strip()
+            if not attrs['libelle']:
+                raise serializers.ValidationError({'libelle': 'Le libellé est requis.'})
+        # Le 29 février est valide : il existe les années bissextiles.
+        if not date_valide(jour, mois):
+            raise serializers.ValidationError(
+                {'jour': f'{jour}/{mois} n’est pas une date du calendrier.'})
+        doublon = JourFerieFixe.objects.filter(jour=jour, mois=mois)
+        if inst:
+            doublon = doublon.exclude(pk=inst.pk)
+        if doublon.exists():
+            raise serializers.ValidationError(
+                {'jour': f'Un férié existe déjà au {jour:02d}/{mois:02d}.'})
+        return attrs
 
 
 class RamadanSerializer(serializers.ModelSerializer):

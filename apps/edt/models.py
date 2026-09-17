@@ -196,6 +196,17 @@ class SeanceReelle(models.Model):
     # Une séance annulée n'est PAS projetée : il n'y a ni cours à pointer, ni
     # heure à payer.
     annulee = models.BooleanField(default=False)
+    # POURQUOI la séance est annulée, quand ce n'est pas une décision à la main.
+    #
+    # Un jour marqué férié annule ses séances ; retirer le férié doit les
+    # rétablir — CELLES-LÀ, et jamais une annulation décidée à la main (un
+    # enseignant malade le même jour). Sans le motif, le retrait ne pourrait
+    # pas les distinguer. Vide pour une annulation manuelle ; une annulation
+    # ou un rétablissement faits à la main l'effacent.
+    MOTIF_FERIE = 'ferie'
+    MOTIFS_ANNULATION = [('', 'Manuelle'), (MOTIF_FERIE, 'Jour férié')]
+    motif_annulation = models.CharField(
+        max_length=10, choices=MOTIFS_ANNULATION, blank=True, default='')
     # Qui devait assurer la séance avant permutation. La charge suit `prof`,
     # c'est-à-dire l'enseignant effectif ; ceci ne sert qu'à la traçabilité.
     prof_initial = models.ForeignKey(

@@ -33,6 +33,7 @@ from .serializers import (EmploiArchiveSerializer, GrilleTypeListSerializer,
 # `partager` est renommé : l'action de la vue porte le même nom, et deux
 # `partager` dans un fichier finissent par se confondre à la lecture.
 from .services.partage import partager as etendre_partage
+from apps.parametres.feries import refuser_ajout, refuser_sur_ferie_isole
 from .services.permutation import permuter_enseignants
 from .services.archive import archiver_semaine
 from .services.coherence import (ETAT_DIVERGENT, LIBELLES,
@@ -450,6 +451,16 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
     ordering         = ['semaine__date', 'creneau_fk__ordre']
     pagination_class = None
 
+    # Les refus d'un JOUR FERMÉ vivent ici, dans la vue, et non dans
+    # `SeanceReelleSerializer.validate` : levée dans le sérialiseur, l'erreur
+    # arrive sous `errors.non_field_errors`, que `apiFetch` ne lit pas — le
+    # message s'afficherait en JSON brut. Voir `apps/parametres/feries.py`.
+
+    def perform_create(self, serializer):
+        # AJOUTER : refusé sur TOUT jour hors cours.
+        refuser_ajout(serializer.validated_data.get('semaine'))
+        super().perform_create(serializer)
+
     def perform_update(self, serializer):
         """Une séance partagée reste identique sur tous ses groupes.
 
@@ -457,11 +468,22 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
         deux groupes d'un même cours diverger sur l'un de ces axes ferait payer
         deux fois un enseignant qui n'a donné qu'un cours.
         """
+        # MODIFIER — rétablir compris : refusé sur un férié isolé. La séance
+        # doit rester telle quelle pour être rétablie au retrait du férié.
+        refuser_sur_ferie_isole(serializer.instance.semaine, 'modifier')
+        cible = serializer.validated_data.get('semaine')
+        if cible is not None and cible.pk != serializer.instance.semaine_id:
+            # La déplacer vers un jour fermé, c'est l'y ajouter.
+            refuser_ajout(cible)
         seance = serializer.save()
         if seance.cle_partage:
             propager(seance)
 
     def perform_destroy(self, instance):
+        # SUPPRIMER : refusé sur un férié isolé — supprimée, la séance ne
+        # pourrait plus être rétablie. PERMIS sur une semaine entière hors
+        # cours : elle n'a pas de rétablissement, et il faut pouvoir la nettoyer.
+        refuser_sur_ferie_isole(instance.semaine, 'supprimer')
         # Supprimer une séance partagée retire SON groupe du cours, pas le cours.
         retirer_du_partage(instance)
 
@@ -507,6 +529,9 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
         jamais écrasé.
         """
         seance = self.get_object()
+        # PARTAGER : refusé sur un férié isolé — les copies ne porteraient pas
+        # le motif, et le retrait du férié ne les rétablirait pas.
+        refuser_sur_ferie_isole(seance.semaine, 'partager')
         demandes = request.data.get('departements') or []
         if not isinstance(demandes, (list, tuple)) or not demandes:
             return Response({'detail': 'Indiquez au moins un groupe.'},

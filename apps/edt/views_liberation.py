@@ -125,6 +125,10 @@ class DemandeLiberationViewSet(AuditMixin, viewsets.ModelViewSet):
             if libere:
                 # La SALLE est libérée, pas la séance : le cours a toujours lieu.
                 seance = demande.seance
+                # Sur un férié isolé la séance est figée : elle doit revenir
+                # telle quelle, salle comprise, au retrait du férié.
+                from apps.parametres.feries import refuser_sur_ferie_isole
+                refuser_sur_ferie_isole(seance.semaine, 'libérer la salle d’')
                 seance.salle = None
                 seance.save(update_fields=['salle'])
                 # Un cours partagé se tient dans une seule salle : les séances

@@ -286,12 +286,19 @@ class SeanceReelleSerializer(serializers.ModelSerializer):
                   'em', 'em_code', 'em_intitule', 'prof', 'prof_nom',
                   'prof_initial', 'prof_initial_nom', 'salle', 'salle_nom',
                   'type_seance_fk', 'type_libelle', 'type_special',
-                  'origine', 'seance_type', 'annulee', 'observations', 'modifiee_le',
-                  'cle_partage', 'groupes_partages']
-        read_only_fields = ['modifiee_le', 'cle_partage']
+                  'origine', 'seance_type', 'annulee', 'motif_annulation',
+                  'observations', 'modifiee_le', 'cle_partage', 'groupes_partages']
+        # Le motif n'est posé que par le marquage d'un jour férié.
+        read_only_fields = ['modifiee_le', 'cle_partage', 'motif_annulation']
 
     def validate(self, attrs):
         courant = self.instance
+
+        # Une annulation ou un rétablissement faits À LA MAIN effacent le motif :
+        # le retrait du férié ne doit rétablir que ce que le férié a annulé.
+        if 'annulee' in attrs and (courant is None
+                                   or attrs['annulee'] != courant.annulee):
+            attrs['motif_annulation'] = ''
 
         def champ(nom):
             if nom in attrs:

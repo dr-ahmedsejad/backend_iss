@@ -30,7 +30,7 @@ from django.db import transaction
 # champs sont propagés à toutes les séances partagées : les laisser diverger
 # ferait payer deux fois un enseignant qui n'a donné qu'un cours.
 CHAMPS_PROPAGES = ('em_id', 'prof_id', 'salle_id', 'type_seance_fk_id',
-                   'annulee', 'prof_initial_id', 'origine')
+                   'annulee', 'motif_annulation', 'prof_initial_id', 'origine')
 
 
 @transaction.atomic
@@ -66,7 +66,8 @@ def partager(seance, departements) -> dict:
             creneau_fk=seance.creneau_fk, em=seance.em, prof=seance.prof,
             salle=seance.salle, type_seance_fk=seance.type_seance_fk,
             origine=seance.origine, seance_type=seance.seance_type,
-            annulee=seance.annulee, prof_initial=seance.prof_initial,
+            annulee=seance.annulee, motif_annulation=seance.motif_annulation,
+            prof_initial=seance.prof_initial,
             cle_partage=seance.cle_partage,
         )
         ajoutes.append(int(dept_id))

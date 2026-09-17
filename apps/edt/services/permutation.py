@@ -125,6 +125,10 @@ def permuter_enseignants(a, b, nb_semaines=1, motif: str = '') -> int:
     if (sa.annee_universitaire, sa.type_semestre, sa.numero_semaine) != \
        (sb.annee_universitaire, sb.type_semestre, sb.numero_semaine):
         raise ValidationError('Les deux séances doivent être de la même semaine.')
+    # Un jour férié ne se rétablit pas à la main : le conseil « rétablissez-la »
+    # serait faux. On le dit avant.
+    from apps.parametres.feries import refuser_sur_ferie_isole
+    refuser_sur_ferie_isole(sa, 'permuter')
     if a.annulee or b.annulee:
         raise ValidationError('Une séance annulée ne se permute pas : rétablissez-la d’abord.')
 
