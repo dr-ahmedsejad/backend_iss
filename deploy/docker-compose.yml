@@ -31,7 +31,7 @@ services:
   # version anterieure n'est PAS supporte).
   db:
     image: postgres:18
-    container_name: siga-db
+    container_name: iss-db
     restart: always
     environment:
       POSTGRES_DB: gesafped26
@@ -85,7 +85,7 @@ services:
   # le fallback de siga/settings/base.py:137 (REDIS_URL absent).
   redis:
     image: redis:7-alpine
-    container_name: siga-redis
+    container_name: iss-redis
     restart: always
     volumes:
       - redis_data:/data
@@ -111,7 +111,7 @@ services:
   # et de confiance (LAN interne).
   adminer:
     image: adminer:latest
-    container_name: siga-adminer
+    container_name: iss-adminer
     restart: always
     depends_on:
       db:
@@ -119,14 +119,16 @@ services:
     environment:
       ADMINER_DEFAULT_SERVER: db
     ports:
-      - "127.0.0.1:8091:8080"
+      # Port pilote par .env : sur un VPS mutualise, 8091 et 8092 peuvent
+      # deja servir aux adminer des autres instances.
+      - "127.0.0.1:${SIGA_ADMINER_PORT:-8091}:8080"
 
   # ─── Backend Django ──────────────────────────────────────────
   backend:
     build:
       context: ..
       dockerfile: Dockerfile
-    container_name: siga-backend
+    container_name: iss-backend
     restart: always
     depends_on:
       db:
@@ -153,12 +155,18 @@ services:
       # CORS : origine publique (http ET https du domaine) + local. Grace au
       # sub_filter Nginx, les XHR du frontend retombent sur le meme origin que la
       # page → CORS n'est sollicite que pour des appels cross-origin (rares).
-      CORS_ALLOWED_ORIGINS: https://${DOMAIN},http://${DOMAIN},http://localhost,http://127.0.0.1
+      # L'origine CORS inclut le PORT, contrairement a ALLOWED_HOSTS que
+      # Django compare sans lui.
+      CORS_ALLOWED_ORIGINS: https://${DOMAIN},http://${DOMAIN},http://${DOMAIN}:${SIGA_WEB_PORT:-443},http://localhost,http://127.0.0.1
       # Cookies (JWT / session / CSRF) marques Secure → transmis UNIQUEMENT en
       # HTTPS. A activer une fois le certificat SSL en place (Phase 6). On NE met
       # PAS DJANGO_SSL_REDIRECT (c'est Nginx qui redirige 80→443 ; le laisser cote
       # Django casserait la sous-requete auth_request du /media/).
-      DJANGO_COOKIE_SECURE: "True"
+      # Pilote par .env. En HTTP (VPS mutualise, port 7080) il FAUT False :
+      # un cookie marque Secure n'est jamais renvoye sur http://, et la
+      # connexion devient impossible. Defaut True : les deploiements HTTPS
+      # existants ne changent pas.
+      DJANGO_COOKIE_SECURE: "${DJANGO_COOKIE_SECURE:-True}"
       # Domaine de vérification des documents officiels (QR). Défaut = domaine public
       # (QR scannable partout). Surchargeable via .env (ex. LAN) sans casser le droplet.
       DOCUMENTS_BASE_URL: ${DOCUMENTS_BASE_URL:-https://ent.iss-gp.mr}
@@ -198,7 +206,7 @@ services:
         # d'arrivee. Permet de conserver une seule build pour servir 3 origines
         # differentes sans alteration du code source.
         NEXT_PUBLIC_API_URL: http://__SIGA_API_HOST__
-    container_name: siga-frontend
+    container_name: iss-frontend
     restart: always
     depends_on:
       - backend
@@ -206,12 +214,18 @@ services:
   # ─── Reverse proxy Nginx ─────────────────────────────────────
   nginx:
     image: nginx:alpine
-    container_name: siga-nginx
+    container_name: iss-nginx
     restart: always
     ports:
-      # 80 → redirige vers 443 (cf. nginx.conf). 443 = HTTPS (app).
-      - "80:80"
-      - "443:443"
+      # Port pilote par .env, pour tenir sur un VPS MUTUALISE ou 80, 443, 8080 et
+      # 9090 servent deja a d'autres instances :
+      #   HTTP  (VPS)  : SIGA_WEB_PORT=7080  SIGA_WEB_PORT_INTERNAL=80
+      #   HTTPS (defaut, machine dediee) : 443:443, plus la redirection 80 ci-dessous
+      - "${SIGA_WEB_PORT:-443}:${SIGA_WEB_PORT_INTERNAL:-443}"
+      # La redirection 80 -> 443 n'a de sens que sur une machine dediee. Sur un
+      # VPS mutualise, SIGA_HTTP_PORT vaut 127.0.0.1:7079 (inoffensif) ou la
+      # ligne est retiree.
+      - "${SIGA_HTTP_PORT:-80}:80"
     volumes:
       # Fichier de conf Nginx : défaut = nginx.conf (droplet : ent.iss-gp.mr + Let's
       # Encrypt). Variante LAN on-premise : le .env pose SIGA_NGINX_CONF=./nginx.lan.conf
