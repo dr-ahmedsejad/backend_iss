@@ -312,6 +312,17 @@ class TestSemaines:
         assert [(f['jour'], f['libelle']) for f in s1[0]['jours_feries']] == [('Mardi', 'Tabaski')]
         assert [(j['jour'], j['type_semaine']) for j in s1[0]['jours']] ==                [('Lundi', 'cours'), ('Mardi', 'ferie'), ('Mercredi', 'cours')]
 
+    def test_le_calendrier_est_lisible_sans_etre_admin(self, monde, gens):
+        """Le directeur des etudes planifie : sans acces a `grouped`, son ecran
+        d'emploi du temps n'a aucune semaine a proposer. Ecrire reste admin."""
+        params = {'annee_universitaire': ANNEE, 'type_semestre': 'I'}
+        assert api(gens['de']).get(URL_SEMAINES + 'grouped/', params).status_code == 200
+        assert api(gens['de']).get(URL_SEMAINES + 'feries/', params).status_code == 200
+        refus = api(gens['de']).post(URL_SEMAINES + 'marquer-type/', {
+            **params, 'date_debut': ligne(monde, 1, 'Lundi').date.isoformat(),
+            'nouveau_type': 'vacances'}, format='json')
+        assert refus.status_code == 403
+
     def test_une_semaine_contenant_un_ferie_isole_peut_etre_marquee(self, monde, gens):
         marquer(gens['admin'], ligne(monde, 1, 'Mardi'))
         r = marquer_semaine(gens['admin'], monde, 1, 'vacances')

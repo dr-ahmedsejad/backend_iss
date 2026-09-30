@@ -223,9 +223,12 @@ class SemaineViewSet(AuditMixin, viewsets.ModelViewSet):
         if self.action == 'actif':
             from rest_framework.permissions import AllowAny
             return [AllowAny()]
-        # 'feries' : l'emploi du temps d'un responsable non admin doit savoir
-        # quels jours sont feries pour les montrer.
-        if self.action in ('list', 'retrieve', 'feries'):
+        # 'grouped' et 'feries' sont des LECTURES, sur les memes lignes que
+        # 'list' — deja ouverte a tout authentifie. Les laisser retomber sur
+        # IsAdmin privait le directeur des etudes du calendrier : l'ecran de
+        # l'emploi du temps n'avait aucune semaine a proposer, et l'on cherchait
+        # la panne dans le calendrier alors qu'elle etait dans les droits.
+        if self.action in ('list', 'retrieve', 'grouped', 'feries'):
             return [IsAuthenticated()]
         return super().get_permissions()
 
