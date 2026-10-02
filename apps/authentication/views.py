@@ -162,6 +162,31 @@ class LogoutView(generics.GenericAPIView):
 
 
 # ── Refresh ───────────────────────────────────────────────────────────────────
+def _doit_changer_mdp(user):
+    from apps.authentication.identifiants import doit_changer_mdp
+    return doit_changer_mdp(user)
+
+
+def _emis_avant_la_derniere_publication(jeton) -> bool:
+    """Ce jeton de renouvellement date-t-il d'avant la dernière publication
+    reçue par le miroir ? Toujours faux sur le serveur de travail."""
+    from core.mirror import est_miroir
+    if not est_miroir():
+        return False
+    from apps.publication.models import PublicationRecue
+    recue = PublicationRecue.objects.order_by('-recue_le').first()
+    if recue is None:
+        return False
+    try:
+        emis = RefreshToken(jeton, verify=False).get('iat')
+    except TokenError:
+        return False          # jeton illisible : SimpleJWT le refusera de lui-même
+    if emis is None:
+        return True
+    from datetime import timezone as tz
+    return datetime.fromtimestamp(emis, tz=tz.utc) < recue.recue_le
+
+
 class CookieTokenRefreshView(TokenRefreshView):
     """Refresh depuis le cookie HttpOnly."""
     permission_classes = [AllowAny]
@@ -171,6 +196,17 @@ class CookieTokenRefreshView(TokenRefreshView):
         refresh = request.COOKIES.get(JWT_CONF.get('AUTH_COOKIE_REFRESH', 'refresh_token'))
         if not refresh:
             return Response({'error': 'Token de refresh absent.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Sur le miroir, la publication VIDE la liste des jetons révoqués : un
+        # jeton déconnecté redeviendrait valable jusqu'à expiration. On refuse
+        # donc tout jeton émis avant la dernière publication reçue — chacun se
+        # reconnecte une fois après une publication.
+        if _emis_avant_la_derniere_publication(refresh):
+            response = Response({'error': 'Session expirée : reconnectez-vous.'},
+                                status=status.HTTP_401_UNAUTHORIZED)
+            response.delete_cookie(JWT_CONF.get('AUTH_COOKIE', 'access_token'))
+            response.delete_cookie(JWT_CONF.get('AUTH_COOKIE_REFRESH', 'refresh_token'))
+            return response
 
         # Injecter le refresh token sans modifier le QueryDict — on écrase _full_data directement
         request._full_data = {'refresh': refresh}
@@ -215,10 +251,29 @@ class ChangePasswordView(generics.UpdateAPIView):
     http_method_names  = ['post']
 
     def post(self, request):
+        from apps.authentication.identifiants import (
+            enregistrer_en_ligne, peut_changer_en_ligne)
+        from apps.authentication.models import IdentifiantPortail
+        from core.mirror import est_miroir
+
+        # Sur le miroir, le personnel change son mot de passe sur le serveur de
+        # travail : écrit ici, il serait invisible là-bas.
+        if est_miroir() and not peut_changer_en_ligne(request.user):
+            return Response(
+                {'detail': "Changez votre mot de passe sur le serveur de travail : "
+                           "il descendra sur le portail à la publication suivante."},
+                status=status.HTTP_403_FORBIDDEN)
+
         serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
-        request.user.set_password(serializer.validated_data['new_password'])
-        request.user.save()
+        if est_miroir():
+            # Jamais dans la table des comptes, que la publication réécrit.
+            enregistrer_en_ligne(request.user, serializer.validated_data['new_password'],
+                                 IdentifiantPortail.ORIGINE_CHANGEMENT,
+                                 ip=request.META.get('REMOTE_ADDR'))
+        else:
+            request.user.set_password(serializer.validated_data['new_password'])
+            request.user.save()
         logger.info('Password changed for user=%s', request.user.username)
         # `keep_forever` : un changement de mot de passe est l'événement qu'on
         # vient chercher des mois plus tard, quand un compte a été utilisé par
@@ -244,8 +299,11 @@ class FirstLoginView(generics.GenericAPIView):
     throttle_classes   = [SensitiveEndpointThrottle]
 
     def post(self, request):
+        from apps.authentication.identifiants import doit_changer_mdp
+        from core.mirror import est_miroir
+
         user = request.user
-        if not user.doit_changer_mdp:
+        if not doit_changer_mdp(user):
             return Response(
                 {'detail': 'Aucun changement de mot de passe requis.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -260,6 +318,9 @@ class FirstLoginView(generics.GenericAPIView):
             return Response({'detail': 'Les mots de passe ne correspondent pas.'}, status=status.HTTP_400_BAD_REQUEST)
         if len(new_password) < 8:
             return Response({'detail': 'Le mot de passe doit contenir au moins 8 caractères.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if est_miroir():
+            return self._premier_acces_en_ligne(request, user, new_password)
 
         # Mettre à jour le mot de passe
         user.set_password(new_password)
@@ -307,6 +368,32 @@ class FirstLoginView(generics.GenericAPIView):
             'nouveau_username': nouveau_username,
         })
 
+    def _premier_acces_en_ligne(self, request, user, new_password):
+        """Le premier accès sur le MIROIR : le mot de passe, et rien d'autre.
+
+        Le mot de passe va dans la boîte de réception, que la publication ne
+        touche pas. L'identifiant ne change PAS : le passage CNI → matricule
+        réécrirait la table des comptes, et la publication suivante le
+        défairait — l'étudiant ne pourrait plus se connecter avec le nom
+        qu'on vient de lui annoncer.
+        """
+        from apps.authentication.identifiants import enregistrer_en_ligne
+        from apps.authentication.models import IdentifiantPortail
+
+        enregistrer_en_ligne(user, new_password, IdentifiantPortail.ORIGINE_PREMIER_ACCES,
+                             ip=request.META.get('REMOTE_ADDR'))
+        logger.info('First login (miroir) password set for user=%s', user.pk)
+        write_audit(
+            action=ACTION_PASSWORD_RESET, model_name='CustomUser',
+            object_id=str(user.pk), changes={},
+            label='Premier accès en ligne : mot de passe défini (%s)' % user.username,
+            keep_forever=True, user=user,
+        )
+        return Response({
+            'detail':           'Mot de passe modifié avec succès.',
+            'nouveau_username': user.username,
+        })
+
 
 # ── Contexte (année universitaire + semestre) ─────────────────────────────────
 class ContexteView(generics.GenericAPIView):
@@ -351,7 +438,7 @@ class MeView(generics.GenericAPIView):
             'avatar':              user.avatar.url if user.avatar else None,
             'annee_universitaire': contexte.annee_universitaire,
             'semestre':            contexte.semestre,
-            'doit_changer_mdp':    user.doit_changer_mdp,
+            'doit_changer_mdp':    _doit_changer_mdp(user),
         }
 
         if user.role == 'etudiant':

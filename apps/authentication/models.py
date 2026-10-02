@@ -51,6 +51,12 @@ class CustomUser(AbstractUser):
     name             = models.CharField(max_length=150, blank=True)
     avatar           = models.ImageField(upload_to='avatars/', null=True, blank=True, validators=[validate_avatar])
     doit_changer_mdp = models.BooleanField(default=False)
+    # Date du dernier mot de passe fixé sur le SERVEUR DE TRAVAIL (création du
+    # compte, réinitialisation par le personnel). PUBLIÉE vers le miroir, où
+    # elle tranche avec les mots de passe changés en ligne : le plus récent
+    # l'emporte. Vide pour les comptes antérieurs : le changement en ligne
+    # l'emporte alors toujours. Voir apps/authentication/identifiants.py.
+    mdp_fixe_le      = models.DateTimeField(null=True, blank=True)
 
     # Delegation EDT : groupes que ce user peut gerer (emplois/suivi/vacation).
     # Signal unique pour autoriser la gestion EDT d'un departement, independant
@@ -68,6 +74,17 @@ class CustomUser(AbstractUser):
 
     def __str__(self):
         return f'{self.username} ({self.role})'
+
+    def set_password(self, raw_password):
+        """Fixe le mot de passe ET date le geste — voir `mdp_fixe_le`.
+
+        Sur le miroir, un mot de passe de portail ne passe jamais par ici : il
+        va dans `IdentifiantPortail`. Ce qui passe ici est fixé sur le serveur
+        de travail, et doit l'emporter sur un changement en ligne plus ancien.
+        """
+        from django.utils import timezone
+        super().set_password(raw_password)
+        self.mdp_fixe_le = timezone.now()
 
 
 class Module(models.Model):
@@ -156,3 +173,43 @@ class UserContexte(models.Model):
 
     def __str__(self):
         return f'{self.user.username} — {self.annee_universitaire} / {self.semestre}'
+
+
+class IdentifiantPortail(models.Model):
+    """Un mot de passe changé SUR LE MIROIR — boîte de réception.
+
+    Le danger qu'elle écarte : la publication remplace la table des comptes du
+    miroir par celle du serveur de travail. Un mot de passe changé en ligne y
+    serait remis à l'ancien, et un mot de passe initial — souvent distribué
+    sur papier, donc connu d'autres — redeviendrait valable, premier accès
+    compris. Rangé ici, il ne passe jamais par la publication.
+
+    AUCUNE clé étrangère : `user_id` est un identifiant brut. La table est en
+    exclusion TOTALE (`settings.BOITE_DE_RECEPTION`) ; une contrainte vers les
+    comptes ferait échouer le restore (pg_dump --clean ne droppe pas en
+    cascade). Gardé par tests/test_miroir_invariant.py.
+
+    La règle de lecture — qui, de la ligne ou du mot de passe publié, fait
+    foi — est dans apps/authentication/identifiants.py, et nulle part ailleurs.
+    """
+    ORIGINE_PREMIER_ACCES = 'premier_acces'
+    ORIGINE_CHANGEMENT    = 'changement'
+    ORIGINES = [
+        (ORIGINE_PREMIER_ACCES, 'Premier accès'),
+        (ORIGINE_CHANGEMENT,    'Changement de mot de passe'),
+    ]
+
+    user_id    = models.BigIntegerField(unique=True)
+    # Instantané lisible : le nom du compte au moment du changement.
+    username   = models.CharField(max_length=150, blank=True, default='')
+    # L'EMPREINTE (algorithme de Django), jamais le mot de passe en clair.
+    password   = models.CharField(max_length=128)
+    origine    = models.CharField(max_length=20, choices=ORIGINES)
+    modifie_le = models.DateTimeField()
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'portail_identifiant'
+
+    def __str__(self):
+        return f'identifiant en ligne #{self.user_id} ({self.modifie_le:%Y-%m-%d %H:%M})'

@@ -4,6 +4,12 @@ from django.contrib.auth.password_validation import validate_password
 from .models import CustomUser, Module, Action, ModuleAction, RoleDefault, UserPermission, UserContexte, ROLE_CHOICES, SEMESTRE_CHOICES
 
 
+# La valeur du premier accès qui FAIT FOI (miroir : voir identifiants.py).
+def _doit_changer_mdp(user):
+    from apps.authentication.identifiants import doit_changer_mdp
+    return doit_changer_mdp(user)
+
+
 # ── JWT custom payload ────────────────────────────────────────────────────────
 class SIGATokenObtainPairSerializer(TokenObtainPairSerializer):
     # Rendus optionnels : si fournis, ils mettent à jour UserContexte en base.
@@ -75,7 +81,9 @@ class SIGATokenObtainPairSerializer(TokenObtainPairSerializer):
             'avatar':               user.avatar.url if user.avatar else None,
             'annee_universitaire':  contexte.annee_universitaire,
             'semestre':             contexte.semestre,
-            'doit_changer_mdp':     user.doit_changer_mdp,
+            # La valeur qui FAIT FOI : sur le miroir, un premier accès fait en
+            # ligne survit à la publication qui remet l'indicateur à vrai.
+            'doit_changer_mdp':     _doit_changer_mdp(user),
         }
 
         # Champs supplémentaires pour le rôle étudiant
@@ -175,7 +183,10 @@ class ChangePasswordSerializer(serializers.Serializer):
     new_password = serializers.CharField(write_only=True, validators=[validate_password])
 
     def validate_old_password(self, value):
-        if not self.context['request'].user.check_password(value):
+        # Le mot de passe qui FAIT FOI — sur le miroir, `check_password`
+        # accepterait l'ancien, que la publication a réécrit.
+        from apps.authentication.identifiants import verifier_mot_de_passe
+        if not verifier_mot_de_passe(self.context['request'].user, value):
             raise serializers.ValidationError('Mot de passe actuel incorrect.')
         return value
 

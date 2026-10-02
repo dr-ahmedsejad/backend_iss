@@ -1,9 +1,25 @@
 """
 Serializers pour AuditLog — exposition lecture seule du journal d'audit.
 """
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
 from core.models import AuditLog
+
+
+def _compte(obj):
+    """Le compte de l'entrée, ou None s'il n'existe plus.
+
+    Le journal n'a plus de contrainte vers les comptes (core/0006) : chaque
+    instance garde le sien, et sur le miroir un compte peut disparaître à une
+    publication. L'entrée doit rester lisible — `user_id` seul, sans nom.
+    """
+    if not obj.user_id:
+        return None
+    try:
+        return obj.user
+    except ObjectDoesNotExist:
+        return None
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
@@ -32,17 +48,19 @@ class AuditLogSerializer(serializers.ModelSerializer):
         read_only_fields = fields  # journal append-only : tout est read-only
 
     def get_user_username(self, obj):
-        return obj.user.username if obj.user_id else None
+        u = _compte(obj)
+        return u.username if u else None
 
     def get_user_full_name(self, obj):
-        if not obj.user_id:
+        u = _compte(obj)
+        if u is None:
             return None
-        u = obj.user
         full = f'{getattr(u, "first_name", "")} {getattr(u, "last_name", "")}'.strip()
         return full or u.username
 
     def get_user_role(self, obj):
-        return getattr(obj.user, 'role', None) if obj.user_id else None
+        u = _compte(obj)
+        return getattr(u, 'role', None) if u else None
 
     def get_institution_nom(self, obj):
         if not obj.institution_id:

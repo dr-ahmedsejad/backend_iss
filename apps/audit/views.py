@@ -29,6 +29,7 @@ from core.models import AuditLog
 from core.permissions import IsAdminOrIT
 
 from .filters import AuditLogFilter
+from .serializers import _compte
 from .serializers import AuditLogListSerializer, AuditLogSerializer
 
 
@@ -152,8 +153,8 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
                 yield writer.writerow([
                     log.id,
                     log.timestamp.isoformat(),
-                    getattr(log.user, 'username', '') if log.user_id else '',
-                    getattr(log.user, 'role', '') if log.user_id else '',
+                    getattr(_compte(log), 'username', '') or '',
+                    getattr(_compte(log), 'role', '') or '',
                     log.action,
                     log.model_name,
                     log.object_id,

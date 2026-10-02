@@ -9,6 +9,7 @@ from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
 from core.media_auth import MediaAuthView
+from core.mirror import InstanceView
 
 # La generation du suivi projette d'abord la semaine reclamee. Voir plus bas
 # pour la capture d'URL, et apps/edt/generation.py pour ce qu'elle supprime.
@@ -57,6 +58,11 @@ urlpatterns = [
     # Portail étudiant
     path('api/v1/portail/',       include('apps.portail.urls')),
     path('api/v1/reclamations/',  include('apps.reclamations.urls')),
+    # Portail en ligne : rôle de l'instance (public), publication vers le
+    # miroir, brouillon de notes saisi en ligne.
+    path('api/v1/instance/',        InstanceView.as_view(), name='instance'),
+    path('api/v1/synchronisation/', include('apps.publication.urls')),
+    path('api/v1/saisie-en-ligne/', include('apps.saisie_en_ligne.urls')),
     # Journal d'audit (lecture seule)
     path('api/v1/audit/',         include('apps.audit.urls')),
     # Sauvegardes BD (liste, download, matrice grants, audit log)

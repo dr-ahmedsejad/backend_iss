@@ -58,12 +58,22 @@ class AppendOnlyManager(models.Manager):
 
 
 class AuditLogBase(models.Model):
-    """Champs communs entre AuditLog (hot) et AuditLogArchive (warm)."""
+    """Champs communs entre AuditLog (hot) et AuditLogArchive (warm).
+
+    `db_constraint=False` sur les deux relations (core/0006) : chaque instance
+    — serveur de travail, miroir — garde SON journal. Le journal est exclu
+    TOTALEMENT de la publication (`settings.TABLES_PROPRES_A_L_INSTANCE`) ; une
+    contrainte vers les comptes y ferait échouer la restauration. Vidé à
+    chaque publication, il perdrait justement la trace de ce qui s'est passé
+    sur le serveur exposé à Internet. Un compte disparu laisse donc un
+    `user_id` sans cible : l'écran du journal le tolère (apps/audit).
+    """
     user        = models.ForeignKey(
         'authentication.CustomUser',
         on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='+',
+        db_constraint=False,
     )
     action       = models.CharField(max_length=20, choices=ACTION_CHOICES)
     model_name   = models.CharField(max_length=100)
@@ -78,6 +88,7 @@ class AuditLogBase(models.Model):
         on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='+',
+        db_constraint=False,
     )
     request_id   = models.CharField(max_length=36, blank=True, default='')
     label        = models.CharField(max_length=200, blank=True, default='')

@@ -18,46 +18,54 @@ STATUT_CHOICES = [
 
 
 class Reclamation(models.Model):
-    etudiant             = models.ForeignKey(
-        'absence.Etudiant',
-        on_delete=models.CASCADE,
-        related_name='reclamations',
-    )
+    """Réclamation d'un ÉTUDIANT sur une note ou une absence — boîte de réception.
+
+    Écrite EN LIGNE, sur le miroir. La publication remplace tout le reste de la
+    base du miroir : cette table en est exclue TOTALEMENT
+    (`settings.BOITE_DE_RECEPTION`), et ses lignes survivent.
+
+    D'où l'absence de toute clé étrangère. Avec une contrainte vers une table
+    publiée, le restore ÉCHOUE (pg_dump --clean ne droppe jamais en cascade :
+    « n'a pas pu supprimer contrainte … car d'autres objets en dépendent »).
+    Sans contrainte mais avec une relation Django, l'affichage CASSE dès que la
+    cible a disparu — l'étudiant ou l'inscription peuvent être supprimés ou
+    régénérés sur le serveur de travail entre deux publications.
+
+    Donc : des identifiants BRUTS, et un INSTANTANÉ lisible figé au dépôt (nom,
+    matricule, élément). Les identifiants sont quand même vérifiés contre la
+    base au dépôt — on ne réclame pas sur une note qui n'existe pas.
+
+    Une réclamation ne CORRIGE rien : elle informe. La correction se fait sur
+    le serveur de travail et redescend à la publication suivante.
+
+    Gardé par tests/test_miroir_invariant.py et tests/test_miroir_boite.py.
+    Rendue sans clé étrangère par reclamations/0004, sans perdre une ligne.
+    """
+    # ── L'étudiant ─────────────────────────────────────────────────────────
+    etudiant_id          = models.BigIntegerField(db_index=True)
+    etudiant_nom         = models.CharField(max_length=200, blank=True, default='')
+    etudiant_matricule   = models.CharField(max_length=50, blank=True, default='')
+
     type_reclamation     = models.CharField(max_length=20, choices=TYPE_CHOICES, default='autre')
     statut               = models.CharField(max_length=20, choices=STATUT_CHOICES, default='soumise')
 
-    # Références optionnelles selon le type
-    presence             = models.ForeignKey(
-        'absence.Presence',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='reclamations',
-    )
-    inscription_element  = models.ForeignKey(
-        'inscriptions.InscriptionElement',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='reclamations',
-    )
-    session_evaluation   = models.ForeignKey(
-        'evaluations.SessionEvaluation',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='reclamations',
-    )
+    # ── Ce qui est réclamé — identifiants bruts, selon le type ─────────────
+    presence_id            = models.BigIntegerField(null=True, blank=True, db_index=True)
+    inscription_element_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    session_evaluation_id  = models.BigIntegerField(null=True, blank=True, db_index=True)
+    # L'élément : il dit à quel enseignant la réclamation est montrée.
+    em_id                  = models.BigIntegerField(null=True, blank=True, db_index=True)
+    em_code                = models.CharField(max_length=50, blank=True, default='')
+    em_intitule            = models.CharField(max_length=200, blank=True, default='')
 
     motif                = models.TextField()
     justificatif         = models.FileField(upload_to='reclamations/justificatifs/', null=True, blank=True,
                                              validators=[validate_document])
 
-    # Traitement staff
+    # ── Traitement ─────────────────────────────────────────────────────────
     reponse              = models.TextField(blank=True, default='')
-    traitee_par          = models.ForeignKey(
-        'authentication.CustomUser',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='reclamations_traitees',
-    )
+    traitee_par_id       = models.BigIntegerField(null=True, blank=True, db_index=True)
+    traitee_par_nom      = models.CharField(max_length=150, blank=True, default='')
     date_soumission      = models.DateTimeField(auto_now_add=True)
     date_traitement      = models.DateTimeField(null=True, blank=True)
 
@@ -66,7 +74,56 @@ class Reclamation(models.Model):
         ordering = ['-date_soumission']
 
     def __str__(self):
-        return f'{self.etudiant} — {self.type_reclamation} ({self.statut})'
+        return f'{self.etudiant_matricule or self.etudiant_id} — {self.type_reclamation} ({self.statut})'
+
+
+STATUT_SEANCE_CHOICES = [
+    ('en_attente', 'En attente'),
+    ('acceptee',   'Acceptée'),
+    ('rejetee',    'Rejetée'),
+]
+
+
+class ReclamationSeance(models.Model):
+    """Réclamation d'un ENSEIGNANT sur une séance pointée — boîte de réception.
+
+    Elle vivait dans deux champs du pointage (`suivi_suivie_pointage`), une
+    table PUBLIÉE : sur le miroir, chaque publication l'aurait effacée. Les
+    champs restent en place, inutilisés — `apps/suivi/` n'est pas modifié.
+
+    Mêmes règles que `Reclamation` : aucune clé étrangère, identifiants bruts,
+    instantané figé au dépôt. Elle n'ajuste ni le pointage, ni la charge, ni la
+    paie : la décision se reporte à la main sur le serveur de travail.
+    """
+    pointage_id     = models.BigIntegerField(db_index=True)
+    prof_id         = models.BigIntegerField(db_index=True)
+    prof_nom        = models.CharField(max_length=200, blank=True, default='')
+    # ── Instantané de la séance ────────────────────────────────────────────
+    annee_universitaire = models.CharField(max_length=20, blank=True, default='')
+    numero_semaine  = models.IntegerField(null=True, blank=True)
+    jour            = models.CharField(max_length=20, blank=True, default='')
+    creneau         = models.CharField(max_length=50, blank=True, default='')
+    type_seance     = models.CharField(max_length=50, blank=True, default='')
+    em_id           = models.BigIntegerField(null=True, blank=True)
+    em_code         = models.CharField(max_length=50, blank=True, default='')
+    em_intitule     = models.CharField(max_length=200, blank=True, default='')
+    salle_nom       = models.CharField(max_length=100, blank=True, default='')
+    groupes         = models.CharField(max_length=500, blank=True, default='')
+
+    motif           = models.TextField()
+    statut          = models.CharField(max_length=20, choices=STATUT_SEANCE_CHOICES, default='en_attente')
+    reponse         = models.TextField(blank=True, default='')
+    traitee_par_id  = models.BigIntegerField(null=True, blank=True)
+    traitee_par_nom = models.CharField(max_length=150, blank=True, default='')
+    date_soumission = models.DateTimeField(auto_now_add=True)
+    date_traitement = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'reclamations_reclamation_seance'
+        ordering = ['-date_soumission']
+
+    def __str__(self):
+        return f'séance #{self.pointage_id} — {self.prof_nom} ({self.statut})'
 
 
 TYPE_SESSION_CHOICES = [

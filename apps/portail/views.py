@@ -867,7 +867,9 @@ class MesReclamationsView(APIView):
 
     def get(self, request):
         etudiant     = _get_etudiant(request)
-        reclamations = Reclamation.objects.filter(etudiant=etudiant).order_by('-date_soumission')
+        # Identifiant brut : la réclamation n'a plus de clé étrangère (boîte
+        # de réception du miroir — voir apps/reclamations/models.py).
+        reclamations = Reclamation.objects.filter(etudiant_id=etudiant.pk).order_by('-date_soumission')
         serializer   = ReclamationSerializer(reclamations, many=True, context={'request': request})
         return Response(serializer.data)
 
@@ -905,7 +907,36 @@ class MesReclamationsView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
-        reclamation = serializer.save(etudiant=etudiant)
+        # Une présence, comme une note, doit être LA SIENNE.
+        presence = serializer.validated_data.get('presence')
+        if presence is not None and presence.etudiant_id != etudiant.id:
+            return Response({'detail': "Cette absence ne vous concerne pas."},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        # L'INSTANTANÉ, figé au dépôt : la réclamation reste lisible si
+        # l'étudiant, l'inscription ou l'élément disparaissent du miroir à une
+        # publication suivante.
+        v = serializer.validated_data
+        em = None
+        if ie is not None and ie.em_id:
+            em = ie.em
+        elif presence is not None and presence.suivi_id and presence.suivi.em_id:
+            em = presence.suivi.em
+        reclamation = Reclamation.objects.create(
+            etudiant_id=etudiant.pk,
+            etudiant_nom=etudiant.nom or '',
+            etudiant_matricule=etudiant.matricule or '',
+            type_reclamation=v.get('type_reclamation') or 'autre',
+            presence_id=presence.pk if presence is not None else None,
+            inscription_element_id=ie.pk if ie is not None else None,
+            session_evaluation_id=(v['session_evaluation'].pk
+                                   if v.get('session_evaluation') is not None else None),
+            em_id=em.pk if em else None,
+            em_code=(em.code_em or '') if em else '',
+            em_intitule=(em.intitule or '') if em else '',
+            motif=v['motif'],
+            justificatif=v.get('justificatif'),
+        )
         return Response(ReclamationSerializer(reclamation).data, status=status.HTTP_201_CREATED)
 
 
@@ -1011,7 +1042,7 @@ class DetailReclamationView(generics.RetrieveAPIView):
     def get_object(self):
         etudiant = _get_etudiant(self.request)
         try:
-            return Reclamation.objects.get(pk=self.kwargs['pk'], etudiant=etudiant)
+            return Reclamation.objects.get(pk=self.kwargs['pk'], etudiant_id=etudiant.pk)
         except Reclamation.DoesNotExist:
             from rest_framework.exceptions import NotFound
             raise NotFound('Réclamation introuvable.')

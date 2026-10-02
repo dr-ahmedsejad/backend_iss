@@ -56,6 +56,10 @@ INSTALLED_APPS = [
     # Portail étudiant
     'apps.reclamations',
     'apps.portail',
+    # Portail en ligne : saisie de notes en brouillon (boîte de réception du
+    # miroir) et publication du serveur de travail vers le miroir.
+    'apps.saisie_en_ligne',
+    'apps.publication',
     # Audit (journal lecture-seule)
     'apps.audit',
     # Sauvegardes BD (matrice + telechargement)
@@ -68,6 +72,9 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    # Mode miroir : refuse toute écriture hors liste blanche. Inerte sur le
+    # serveur de travail (MIRROR_MODE=False). Voir core/mirror.py.
+    'core.mirror.MirrorReadOnlyMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'axes.middleware.AxesMiddleware',                          # après AuthenticationMiddleware
@@ -143,7 +150,11 @@ AUTH_USER_MODEL = 'authentication.CustomUser'
 
 AUTHENTICATION_BACKENDS = [
     'axes.backends.AxesStandaloneBackend',   # doit être en premier
-    'django.contrib.auth.backends.ModelBackend',
+    # ModelBackend, plus une règle en mode miroir : le mot de passe changé EN
+    # LIGNE (table portail_identifiant, jamais publiée) l'emporte sur celui que
+    # la publication réécrit. Identique à ModelBackend sur le serveur de
+    # travail. Voir core/auth_backends.py.
+    'core.auth_backends.IdentifiantsBackend',
 ]
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -282,6 +293,102 @@ BACKUP_MYSQLDUMP_BIN = config('BACKUP_MYSQLDUMP_BIN', default='mysqldump')
 # Binaire EFFECTIVEMENT utilisé sur cette branche (connection.vendor == 'postgresql').
 # Doit être dans le PATH, sinon renseigner le chemin absolu via .env.
 BACKUP_PGDUMP_BIN    = config('BACKUP_PGDUMP_BIN',    default='pg_dump')
+
+
+# ══ Portail en ligne : rôle de l'instance et publication ══════════════════════
+#
+# UNE base de code, DEUX déploiements :
+#   * le serveur de TRAVAIL (MIRROR_MODE=False, défaut) — l'autorité, le
+#     personnel y écrit tout ;
+#   * le MIROIR, sur un autre VPS (MIRROR_MODE=True) — consulté par les
+#     étudiants et les enseignants, en LECTURE SEULE sauf la boîte de réception.
+# Un dépôt fraîchement cloné se comporte exactement comme avant.
+MIRROR_MODE = config('MIRROR_MODE', default=False, cast=bool)
+
+# Les écritures permises sur le miroir, adresse par adresse — et non par
+# préfixe : `/api/v1/auth/` porte aussi la gestion des comptes et des droits,
+# `/api/v1/reclamations/` celle des périodes. Toutes seraient écrasées à la
+# publication suivante. Expressions régulières, ancrées au début du chemin.
+MIRROR_WRITE_ALLOWLIST = [
+    # Authentification
+    r'^/api/v1/auth/login/$',
+    r'^/api/v1/auth/logout/$',
+    r'^/api/v1/auth/token/refresh/$',
+    r'^/api/v1/auth/first-login/$',       # → portail_identifiant
+    r'^/api/v1/auth/change-password/$',   # → portail_identifiant
+    r'^/api/v1/auth/contexte/$',          # préférence d'affichage, sans conséquence
+    r'^/admin/login/$',
+    # Boîte de réception — dépôt ET traitement
+    r'^/api/v1/portail/reclamations/$',                    # réclamation d'un étudiant
+    r'^/api/v1/reclamations/\d+/traiter/$',                # traitement (enseignant, scolarité)
+    r'^/api/v1/reclamations/seances/$',                    # réclamation de séance (enseignant)
+    r'^/api/v1/reclamations/seances/\d+/traiter/$',        # traitement (admin, IT)
+    r'^/api/v1/saisie-en-ligne/$',                         # brouillon de notes (enseignant)
+    r'^/api/v1/notifications/\d+/lire/$',                  # → notifications_lecture
+    r'^/api/v1/notifications/tout-lire/$',
+]
+
+# ── Ce que la publication ne transporte PAS ───────────────────────────────────
+# Deux niveaux, à ne JAMAIS confondre (tests/test_miroir_invariant.py) :
+#
+#   * exclusion TOTALE (pg_dump --exclude-table) : ni schéma, ni DROP, ni
+#     données. Le restore ne touche pas la table : ses lignes du miroir
+#     SURVIVENT. Interdit à toute table qui a une contrainte de clé étrangère
+#     vers une table publiée — pg_dump --clean ne droppe jamais en CASCADE, et
+#     le DROP de la table visée échouerait ;
+#   * exclusion des DONNÉES (pg_dump --exclude-table-data) : le dump porte le
+#     DROP et le CREATE, sans les lignes. Au restore, la table du miroir est
+#     VIDÉE.
+
+# La BOÎTE DE RÉCEPTION : tout ce que les gens écrivent EN LIGNE. Aucune clé
+# étrangère, même sans contrainte : des identifiants bruts et un instantané
+# lisible. La table n'évolue que par les migrations du miroir.
+BOITE_DE_RECEPTION = [
+    'reclamations_reclamation',          # réclamation d'un étudiant (note, absence)
+    'reclamations_reclamation_seance',   # réclamation d'un enseignant sur une séance
+    'saisie_note_en_ligne',              # notes saisies en ligne, en brouillon
+    'portail_identifiant',               # mots de passe changés en ligne
+    'notifications_lecture',             # notifications lues en ligne
+]
+
+# Tables PROPRES À CHAQUE INSTANCE : le miroir garde les siennes, le serveur
+# de travail ne lui envoie pas les siennes. Sans contrainte de clé étrangère
+# (le journal d'audit les a perdues en core/0006 pour venir ici).
+TABLES_PROPRES_A_L_INSTANCE = [
+    'core_audit_log',            # journal d'audit : qui est entré, qui a été refusé
+    'core_audit_log_archive',
+    'axes_accessattempt',        # tentatives et verrouillages : remis à zéro, ils
+    'axes_accessfailurelog',     # rendraient la main à qui essaie des mots de passe
+    'axes_accesslog',
+    'django_session',
+    'publication_recue',         # trace des publications reçues (jetons, voir plus bas)
+]
+
+SYNC_EXCLUDE_TABLE = BOITE_DE_RECEPTION + TABLES_PROPRES_A_L_INSTANCE
+
+# Vidées sur le miroir à chaque publication. Seulement ce qui ne peut pas être
+# exclu (une contrainte vers les comptes) ET dont la perte ne coûte rien :
+#   * les jetons : leur perte rendrait valable un jeton révoqué — d'où la
+#     règle de CookieTokenRefreshView, qui refuse tout jeton émis avant la
+#     dernière publication reçue ;
+#   * le journal de l'administration Django : le miroir n'y écrit jamais
+#     (l'intercepteur refuse /admin/ hors connexion).
+SYNC_EXCLUDE_TABLE_DATA = [
+    'token_blacklist_outstandingtoken',
+    'token_blacklist_blacklistedtoken',
+    'django_admin_log',
+]
+
+# Binaire pg_dump (version >= serveur) et cible SSH du miroir. Cible vide :
+# le dump est construit, RIEN n'est transféré, et la réponse le dit.
+SYNC_PG_DUMP_BIN  = config('SYNC_PG_DUMP_BIN', default=BACKUP_PGDUMP_BIN)
+SYNC_SSH_BIN      = config('SYNC_SSH_BIN',     default='ssh')
+SYNC_SSH_HOST     = config('SYNC_SSH_HOST',    default='')
+SYNC_SSH_PORT     = config('SYNC_SSH_PORT',    default='22')
+SYNC_SSH_USER     = config('SYNC_SSH_USER',    default='siga-publication')
+SYNC_SSH_KEY      = config('SYNC_SSH_KEY',     default='')
+SYNC_WORKDIR      = config('SYNC_WORKDIR',     default='') or None
+SYNC_TIMEOUT_S    = config('SYNC_TIMEOUT_S',   default=900, cast=int)
 BACKUP_OPENSSL_BIN   = config('BACKUP_OPENSSL_BIN',   default='openssl')
 # Retention des backups manuels chiffres (jours). Le cleanup tourne via cron.
 BACKUP_MANUAL_RETENTION_DAYS = config(
