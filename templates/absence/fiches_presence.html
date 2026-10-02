@@ -107,7 +107,7 @@
     <div class="fiche-title">
         Fiche de Présence
         {% if fiche.filiere %} — {{ fiche.filiere }}{% endif %}
-        — {{ fiche.dep_nom }}
+        — {{ fiche.groupe_libelle|default:fiche.dep_nom }}
     </div>
 
     <!-- Informations de la séance -->

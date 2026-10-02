@@ -985,6 +985,7 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
         # un étudiant qui a déjà validé l'élément n'a rien à y faire, et un
         # étudiant d'un autre groupe qui le suit EN DETTE doit y figurer.
         from apps.absence.liste_appel import SOURCE_GROUPE, liste_appel
+        from apps.absence.libelles import libelle_groupe
 
         def _resume(e, avec_groupe=False):
             d = {'matricule': e.matricule, 'nom': e.nom, 'genre': e.genre}
@@ -1029,6 +1030,9 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
             dep_info = get_dep_info(s.departement_id) if s.departement_id else {'nom': '—', 'niveau': '', 'filiere': ''}
             fiches.append({
                 'dep_nom':      dep_info['nom'],
+                # « L1 G1 » et non « G1 » : trois groupes s'appellent « G1 »
+                # cette année. Voir `apps/absence/libelles.py`.
+                'groupe_libelle': libelle_groupe(dep_info['nom'], dep_info['niveau']),
                 'niveau':       dep_info['niveau'],
                 'filiere':      dep_info['filiere'],
                 'date_seance':  s.date_suivie,
@@ -1082,6 +1086,18 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
         em = request.query_params.get('em') or None
         r = liste_appel(int(dep), int(em) if em else None, annee)
 
+        # Le libellé du groupe vient d'ici, et le PDF l'emprunte à la même
+        # fonction : l'écran titrait « G1 » et le PDF « Statistique — G1 ».
+        from apps.absence.libelles import libelle_groupe
+        from apps.departement.models import Departement
+        groupe = (Departement.objects.select_related('niveau', 'filiere')
+                  .filter(pk=int(dep)).first())
+        groupe_libelle = libelle_groupe(
+            groupe.nom if groupe else '',
+            groupe.niveau.niveau if groupe and groupe.niveau_id else '')
+        filiere = (groupe.filiere.intitule_fr
+                   if groupe and groupe.filiere_id else '')
+
         def _resume(e, avec_groupe=False):
             d = {'id': e.id, 'matricule': e.matricule, 'nom': e.nom, 'genre': e.genre}
             if avec_groupe:
@@ -1089,6 +1105,8 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
             return d
 
         return Response({
+            'groupe_libelle': groupe_libelle,
+            'filiere':        filiere,
             'source':    r['source'],
             'etudiants': [_resume(e) for e in r['etudiants']],
             'dettes':    [_resume(e, avec_groupe=True) for e in r['dettes']],
