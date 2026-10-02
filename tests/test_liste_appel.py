@@ -187,3 +187,41 @@ class TestAdresse:
         from rest_framework.test import APIClient
         assert APIClient().get(URL, {'departement': 1, 'annee_universitaire': ANNEE}
                                ).status_code in (401, 403)
+
+
+# ── Le gabarit du PDF n'imprime pas ses commentaires ─────────────────────────
+
+class TestGabarit:
+    """Un `{# #}` sur plusieurs lignes n'est PAS un commentaire pour Django : il
+    s'imprime tel quel. Le texte expliquant les dettes est sorti dans le PDF
+    le 02/10/2026 — et celui de la liste non vérifiée sur CHAQUE fiche. Le dépôt
+    avait déjà connu ce défaut sur le PDF de l'emploi du temps."""
+
+    def test_aucun_commentaire_ne_sort_dans_le_document(self, db):
+        from django.template.loader import render_to_string
+        fiche = {
+            'dep_nom': 'G1', 'groupe_libelle': 'L1 G1', 'niveau': 'L1',
+            'filiere': 'Statistique', 'date_seance': None, 'jour': 'Lundi',
+            'creneau': '08h00 à 09h30', 'type_seance': 'CM',
+            'is_surveillance': False, 'numero_semaine': 1, 'em_code': 'ST41',
+            'em_intitule': 'Élément', 'prof_nom': 'Prof', 'salle_nom': '101',
+            # Les deux branches qui portaient un commentaire multiligne :
+            'etudiants': [{'matricule': '001', 'nom': 'Un', 'genre': 'M'}],
+            'dettes': [{'matricule': '002', 'nom': 'Deux', 'genre': 'F', 'groupe': 'G2'}],
+            'liste_non_verifiee': True,
+        }
+        # Le même contexte d'institution que la vue (logo, noms) : sans lui, le
+        # gabarit échoue avant d'avoir rendu la moindre fiche.
+        from core.pdf_utils import get_institution_context
+        html = render_to_string('absence/fiches_presence.html', {
+            'fiches': [fiche], 'annee_universitaire': '2026-2027', 'numero_semaine': 1,
+            **get_institution_context()})
+
+        assert '{#' not in html and '#}' not in html
+        assert 'DETTES' not in html
+        assert 'camarade de promotion' not in html
+        assert 'Inscriptions pédagogiques non saisies' not in html
+        # Et ce qui DOIT s'imprimer s'imprime toujours.
+        assert 'dette · G2' in html
+        assert 'Liste du groupe entier' in html
+        assert 'L1 G1' in html
