@@ -757,9 +757,9 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
                       semaine__type_semestre=p['type_semestre'],
                       semaine__numero_semaine=p['numero_semaine'],
                       annulee=False)
-              .select_related('departement', 'semaine', 'semaine__jour_fk',
-                              'creneau_fk', 'em', 'em__module_lmd', 'prof',
-                              'salle', 'type_seance_fk'))
+              .select_related('departement', 'departement__niveau', 'semaine',
+                              'semaine__jour_fk', 'creneau_fk', 'em',
+                              'em__module_lmd', 'prof', 'salle', 'type_seance_fk'))
 
         # L'axe de lecture donne aussi le sous-titre du document : une grille
         # imprimée circule détachée de l'écran, elle doit dire de qui elle est.
@@ -833,8 +833,18 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
             # enseignant, répéter son nom n'apprend rien, c'est le groupe qui
             # manque ; sur celui d'une SALLE, il faut les deux — qui y
             # enseigne, et à qui.
-            ligne = (s.departement.nom if (p.get('prof') or p.get('salle'))
-                     else (s.prof.nom if s.prof_id else ''))
+            if p.get('salle'):
+                # « L1 G2 » et non « G2 » : plusieurs groupes de l'année
+                # s'appellent G1 ou G2, et une salle reçoit tous les niveaux.
+                # Même règle que le titre des fiches de présence.
+                from apps.absence.libelles import libelle_groupe
+                ligne = libelle_groupe(
+                    s.departement.nom,
+                    s.departement.niveau.niveau if s.departement.niveau_id else '')
+            elif p.get('prof'):
+                ligne = s.departement.nom
+            else:
+                ligne = s.prof.nom if s.prof_id else ''
             enseignant = s.prof.nom if (p.get('salle') and s.prof_id) else ''
             cle = (s.em_id, s.type_seance_fk_id, s.salle_id)
             case = grille[jour][s.creneau_fk_id]

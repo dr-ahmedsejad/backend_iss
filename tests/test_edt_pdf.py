@@ -186,8 +186,23 @@ class TestGroupesSurLaSalle:
         bloc = html.split('<div class="prof-name">', 1)[1]
         enseignant, groupes = bloc.split('<div class="groupes">', 1)
         assert 'Moustapha' in enseignant
-        # Triés, et sur une seule ligne : un cours, une case.
-        assert groupes.split('</div>', 1)[0].strip() == 'G1, G2'
+        # Triés, sur une seule ligne — un cours, une case — et AVEC le
+        # niveau : plusieurs groupes de l'année s'appellent G1 ou G2.
+        assert groupes.split('</div>', 1)[0].strip() == 'L1 G1, L1 G2'
+
+    def test_un_nom_qui_porte_deja_son_niveau_n_est_pas_double(self, monde, gens):
+        """« SDID L2 » le porte déjà : pas de « L2 SDID L2 »."""
+        poser(monde, 'SDID L2', em='SDID31')
+        html = html_du_pdf(gens['admin'], salle=monde['salles']['101'].pk)
+        groupes = html.split('<div class="groupes">', 1)[1].split('</div>', 1)[0].strip()
+        assert groupes == 'SDID L2'
+
+    def test_un_groupe_transversal_garde_son_nom(self, monde, gens):
+        """HE : « Transversal » n'est pas un niveau qu'on préfixe."""
+        poser(monde, 'HE', em='HE11')
+        html = html_du_pdf(gens['admin'], salle=monde['salles']['101'].pk)
+        groupes = html.split('<div class="groupes">', 1)[1].split('</div>', 1)[0].strip()
+        assert groupes == 'HE'
 
     def test_le_pdf_d_un_groupe_n_a_pas_de_ligne_de_plus(self, monde, gens):
         """Le groupe est dans le titre : le répéter dans chaque case est du bruit."""
