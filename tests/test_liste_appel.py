@@ -29,7 +29,7 @@ def etudiant(monde, groupe, matricule):
                                    departement=monde['depts'][groupe])
 
 
-def inscrire(monde, etu, em, annee=None):
+def inscrire(monde, etu, em, annee=None, filiere='f_sea'):
     """Inscription administrative + pédagogique + à l'élément."""
     from apps.inscriptions.models import (InscriptionAdministrative,
                                           InscriptionElement,
@@ -39,7 +39,7 @@ def inscrire(monde, etu, em, annee=None):
     an, _ = Year.objects.get_or_create(annee=annee)
     ia, _ = InscriptionAdministrative.objects.get_or_create(
         etudiant=etu, annee_univ=an,
-        defaults={'filiere': monde['f_sea'], 'niveau': 1,
+        defaults={'filiere': monde[filiere], 'niveau': 1,
                   'institution': monde['inst'],
                   # Unique en base : sans valeur distincte, deux étudiants
                   # inscrits la même année s'y heurtent.
@@ -208,6 +208,7 @@ class TestGabarit:
             # Les deux branches qui portaient un commentaire multiligne :
             'etudiants': [{'matricule': '001', 'nom': 'Un', 'genre': 'M'}],
             'dettes': [{'matricule': '002', 'nom': 'Deux', 'genre': 'F', 'groupe': 'G2'}],
+            'rattaches': [{'matricule': '003', 'nom': 'Trois', 'genre': 'F', 'filiere': 'SEA'}],
             'liste_non_verifiee': True,
         }
         # Le même contexte d'institution que la vue (logo, noms) : sans lui, le
@@ -223,5 +224,104 @@ class TestGabarit:
         assert 'Inscriptions pédagogiques non saisies' not in html
         # Et ce qui DOIT s'imprimer s'imprime toujours.
         assert 'dette · G2' in html
+        assert 'Trois' in html and 'rattaché·e · inscrit·e en SEA' in html
         assert 'Liste du groupe entier' in html
         assert 'L1 G1' in html
+
+
+# ── Les rattachés : placés dans le groupe, inscrits ailleurs ──────────────────
+
+def compter_inscriptions():
+    from apps.inscriptions.models import (InscriptionAdministrative,
+                                          InscriptionElement,
+                                          InscriptionPedagogique)
+    return (InscriptionAdministrative.objects.count(),
+            InscriptionPedagogique.objects.count(),
+            InscriptionElement.objects.count())
+
+
+class TestRattaches:
+    """Le cas du 02/10/2026 : trois étudiants inscrits en SEA placés dans le
+    groupe LPSEA L3 G2 pour la planification, sans toucher leur inscription.
+    Ici, le groupe « SDID L2 » (filière SDID) joue ce rôle."""
+
+    def test_un_inscrit_d_une_autre_filiere_figure_comme_rattache(self, monde):
+        suit = etudiant(monde, 'SDID L2', '100')
+        place = etudiant(monde, 'SDID L2', '101')          # inscrit en SEA
+        inscrire(monde, suit, 'SDID31', filiere='f_sdid')
+        inscrire(monde, place, 'SEA31', filiere='f_sea')
+
+        r = appel(monde, 'SDID L2', 'SDID31')
+        assert r['source'] == 'inscriptions'
+        assert matricules(r['etudiants']) == ['100']
+        assert matricules(r['rattaches']) == ['101']
+        assert r['rattaches'][0].filiere_inscription == 'SEA'
+
+    def test_un_membre_de_la_filiere_non_inscrit_reste_exclu(self, monde):
+        """Le cas ST41 : inscrit dans la filière du groupe mais pas à
+        l'élément, il l'a validé. Il ne revient pas par la porte des rattachés."""
+        suit = etudiant(monde, 'SDID L2', '110')
+        a_valide = etudiant(monde, 'SDID L2', '111')
+        inscrire(monde, suit, 'SDID31', filiere='f_sdid')
+        inscrire(monde, a_valide, 'SEA31', filiere='f_sdid')   # autre élément, MÊME filière
+
+        r = appel(monde, 'SDID L2', 'SDID31')
+        assert matricules(r['etudiants']) == ['110']
+        assert r['rattaches'] == []
+
+    def test_sans_inscription_de_l_annee_personne_n_est_rattache(self, monde):
+        from tests._edt_decor import ANNEE_SUIVANTE
+        suit = etudiant(monde, 'SDID L2', '120')
+        inscrire(monde, suit, 'SDID31', filiere='f_sdid')
+        etudiant(monde, 'SDID L2', '121')                      # aucune inscription
+        ailleurs_l_an_prochain = etudiant(monde, 'SDID L2', '122')
+        inscrire(monde, ailleurs_l_an_prochain, 'SEA31', annee=ANNEE_SUIVANTE)
+
+        assert appel(monde, 'SDID L2', 'SDID31')['rattaches'] == []
+
+    def test_un_rattache_inscrit_a_l_element_n_est_liste_qu_une_fois(self, monde):
+        place = etudiant(monde, 'SDID L2', '130')
+        inscrire(monde, place, 'SDID31', filiere='f_sea')     # inscrit ailleurs, MAIS à l'élément
+        r = appel(monde, 'SDID L2', 'SDID31')
+        assert matricules(r['etudiants']) == ['130']
+        assert r['rattaches'] == []
+
+    def test_un_groupe_sans_filiere_n_a_pas_de_rattache(self, monde):
+        """HE n'a pas de filière à comparer."""
+        suit = etudiant(monde, 'HE', '140')
+        autre = etudiant(monde, 'HE', '141')
+        inscrire(monde, suit, 'HE11')
+        inscrire(monde, autre, 'SEA31', filiere='f_sdid')
+        assert appel(monde, 'HE', 'HE11')['rattaches'] == []
+
+    def test_liste_du_groupe_entier_le_rattache_y_est_deja(self, monde):
+        """Sans inscription saisie pour l'élément, tout le groupe est listé :
+        le rattaché y figure, une seule fois, sans catégorie à part."""
+        place = etudiant(monde, 'SDID L2', '150')
+        inscrire(monde, place, 'SEA31', filiere='f_sea')
+        r = appel(monde, 'SDID L2', 'SDID31')
+        assert r['source'] == 'groupe'
+        assert matricules(r['etudiants']) == ['150']
+        assert r['rattaches'] == []
+
+    def test_la_regle_n_ecrit_aucune_inscription(self, monde):
+        """La demande : les voir sur la fiche SANS toucher leur inscription."""
+        suit = etudiant(monde, 'SDID L2', '160')
+        place = etudiant(monde, 'SDID L2', '161')
+        inscrire(monde, suit, 'SDID31', filiere='f_sdid')
+        inscrire(monde, place, 'SEA31', filiere='f_sea')
+        avant = compter_inscriptions()
+        appel(monde, 'SDID L2', 'SDID31')
+        assert compter_inscriptions() == avant
+
+    def test_l_adresse_rend_les_rattaches_avec_leur_filiere(self, monde, gens):
+        suit = etudiant(monde, 'SDID L2', '170')
+        place = etudiant(monde, 'SDID L2', '171')
+        inscrire(monde, suit, 'SDID31', filiere='f_sdid')
+        inscrire(monde, place, 'SEA31', filiere='f_sea')
+        r = api(gens['admin']).get(URL, {
+            'departement': monde['depts']['SDID L2'].id, 'em': monde['ems']['SDID31'].id,
+            'annee_universitaire': ANNEE})
+        assert r.status_code == 200
+        assert [e['matricule'] for e in r.data['etudiants']] == ['170']
+        assert [(e['matricule'], e['filiere']) for e in r.data['rattaches']] == [('171', 'SEA')]

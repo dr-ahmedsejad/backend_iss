@@ -1001,6 +1001,8 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
             r = liste_appel(s.departement_id, s.em_id, annee)
             listes[cle] = {
                 'etudiants': [_resume(e) for e in r['etudiants']],
+                'rattaches': [{**_resume(e), 'filiere': e.filiere_inscription}
+                              for e in r['rattaches']],
                 'dettes':    [_resume(e, avec_groupe=True) for e in r['dettes']],
                 'liste_non_verifiee': r['source'] == SOURCE_GROUPE,
             }
@@ -1048,7 +1050,8 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
                 'prof_nom':     s.prof.nom if s.prof_id else '—',
                 'salle_nom':    s.salle.nom if s.salle_id else '—',
                 **listes.get((s.departement_id, s.em_id),
-                             {'etudiants': [], 'dettes': [], 'liste_non_verifiee': True}),
+                             {'etudiants': [], 'rattaches': [], 'dettes': [],
+                              'liste_non_verifiee': True}),
             })
 
         html = render_to_string('absence/fiches_presence.html', {
@@ -1109,6 +1112,8 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
             'filiere':        filiere,
             'source':    r['source'],
             'etudiants': [_resume(e) for e in r['etudiants']],
+            'rattaches': [{**_resume(e), 'filiere': e.filiere_inscription}
+                          for e in r['rattaches']],
             'dettes':    [_resume(e, avec_groupe=True) for e in r['dettes']],
             'liste_non_verifiee': r['source'] == SOURCE_GROUPE,
         })

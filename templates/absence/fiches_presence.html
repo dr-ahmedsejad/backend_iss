@@ -149,7 +149,7 @@
     <hr class="thin">
 
     <!-- Liste étudiants -->
-    {% if fiche.etudiants or fiche.dettes %}
+    {% if fiche.etudiants or fiche.rattaches or fiche.dettes %}
     <table class="etu-table">
         <thead>
             <tr>
@@ -163,6 +163,20 @@
             <tr>
                 <td class="col-mat" style="text-align:center;"><span class="mat-code">{{ etu.matricule }}</span></td>
                 <td class="col-nom">{{ etu.nom }}</td>
+                <td class="col-abs">&nbsp;</td>
+            </tr>
+            {% endfor %}
+            {% comment %}
+              Les RATTACHÉS : membres du groupe, inscrits dans une autre filière
+              et placés ici pour la planification. Ils suivent ces cours sans
+              être inscrits à l'élément ; leur filière est écrite pour que nul
+              ne les prenne pour une erreur de liste.
+            {% endcomment %}
+            {% for etu in fiche.rattaches %}
+            <tr>
+                <td class="col-mat" style="text-align:center;"><span class="mat-code">{{ etu.matricule }}</span></td>
+                <td class="col-nom">{{ etu.nom }}
+                    <span style="font-size:9px; color:#555;">— rattaché·e · inscrit·e en {{ etu.filiere }}</span></td>
                 <td class="col-abs">&nbsp;</td>
             </tr>
             {% endfor %}
