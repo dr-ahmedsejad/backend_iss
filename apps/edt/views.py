@@ -77,6 +77,52 @@ def _wkhtmltopdf():
         return trouve
     sep = chr(92)
     return sep.join(['C:', 'Program Files', 'wkhtmltopdf', 'bin', 'wkhtmltopdf.exe'])
+
+
+# Les échelles essayées pour faire tenir une semaine sur UNE page, de la taille
+# réelle à la plus petite qui reste lisible une fois imprimée.
+#
+# Le gabarit n'a de place que pour six jours de hauteur ordinaire, presque sans
+# réserve. Mesuré sur le VPS le 02/10/2026 : SEA L2 G2 tenait, SEA L3 G1 non —
+# dans ce dernier, chaque jour avait une case dont l'intitulé ET le nom
+# passaient sur deux lignes, et le samedi, vide, partait seul en page 2. Ce
+# n'est pas le nombre de séances qui décide, c'est la longueur des noms : on ne
+# peut pas le prévoir, on le mesure.
+#
+# `None` = le rendu d'origine, sans `zoom` : une semaine qui tenait déjà sort
+# exactement comme avant. 0,9 suffit aux semaines réelles ; 0,7 couvre deux
+# cours dans chaque case. En dessous, mieux vaut deux pages lisibles.
+ECHELLES_PDF = (None, '0.9', '0.8', '0.7')
+
+
+def _nb_pages(octets):
+    """Le nombre de pages d'un PDF, ou None s'il ne se lit pas."""
+    from io import BytesIO
+
+    from pypdf import PdfReader
+    try:
+        return len(PdfReader(BytesIO(octets)).pages)
+    except Exception:                                  # noqa: BLE001
+        return None
+
+
+def _rendre_sur_une_page(html, options):
+    """Rend le PDF à la plus grande échelle qui tient sur une page.
+
+    Un PDF qu'on ne sait pas compter est rendu tel quel : la mise à l'échelle
+    est un confort, elle ne doit jamais empêcher le document de sortir. Et si
+    même la plus petite échelle déborde, c'est elle qu'on rend — le moins de
+    pages possible.
+    """
+    import pdfkit
+    conf = pdfkit.configuration(wkhtmltopdf=_wkhtmltopdf())
+    for echelle in ECHELLES_PDF:
+        opts = {**options, 'zoom': echelle} if echelle else options
+        octets = pdfkit.from_string(html, False, configuration=conf, options=opts)
+        pages = _nb_pages(octets)
+        if pages is None or pages <= 1:
+            break
+    return octets
 from .services.partage import propager, retirer_du_partage
 from .services.planification import (dupliquer_grille, dupliquer_semaine,
                                      projeter_semaine, reprendre_semaine,
@@ -690,7 +736,6 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
         """
         from collections import defaultdict
 
-        import pdfkit
         from django.http import HttpResponse
         from django.template.loader import render_to_string
 
@@ -854,14 +899,12 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
         })
 
         try:
-            octets = pdfkit.from_string(
-                html, False,
-                configuration=pdfkit.configuration(
-                    wkhtmltopdf=_wkhtmltopdf()),
-                options={'margin-top': '0.50in', 'margin-right': '0.50in',
-                         'margin-bottom': '0.50in', 'margin-left': '0.50in',
-                         'orientation': 'Landscape',
-                         'enable-local-file-access': ''})
+            # Une semaine se lit sur UNE feuille : ce qui déborde est réduit.
+            octets = _rendre_sur_une_page(
+                html, {'margin-top': '0.50in', 'margin-right': '0.50in',
+                       'margin-bottom': '0.50in', 'margin-left': '0.50in',
+                       'orientation': 'Landscape',
+                       'enable-local-file-access': ''})
         except Exception as exc:                       # noqa: BLE001
             logger.error('PDF EDT : %s', exc)
             return Response({'detail': 'Erreur lors de la génération du PDF.'},
