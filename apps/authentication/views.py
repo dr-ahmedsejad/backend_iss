@@ -19,6 +19,9 @@ from .services.rbac_service import (
     toggle_user_permission, toggle_role_permission,
 )
 from core.throttles import LoginRateThrottle, SensitiveEndpointThrottle, AdminActionThrottle
+from core.audit_helpers import write_audit
+from core.models import (ACTION_ACCOUNT_UNLOCKED, ACTION_LOGIN_SUCCESS, ACTION_LOGOUT,
+                         ACTION_PASSWORD_CHANGED, ACTION_PASSWORD_RESET)
 from .models import CustomUser, Module, ModuleAction, UserContexte, UserPermission, RoleDefault
 from .serializers import (
     SIGATokenObtainPairSerializer, UserSerializer, UserCreateSerializer,
@@ -108,6 +111,20 @@ class LoginView(generics.GenericAPIView):
         response = Response({'user': data.pop('user')}, status=status.HTTP_200_OK)
         _set_auth_cookies(response, data['access'], data['refresh'])
         logger.info('Login success for username=%s IP=%s', request.data.get('username'), ip)
+
+        # Le journal d'audit connaissait les ECHECS de connexion — `authenticate()`
+        # emet son signal meme en JWT — mais pas les REUSSITES : le signal
+        # `user_logged_in` ne part que si l'on appelle `login()` de Django, ce
+        # qu'une authentification par jeton ne fait jamais. On y voyait donc qui
+        # avait essaye d'entrer, jamais qui etait entre.
+        utilisateur = getattr(serializer, 'user', None)
+        if utilisateur is not None:
+            write_audit(
+                action=ACTION_LOGIN_SUCCESS, model_name='CustomUser',
+                object_id=str(utilisateur.pk), changes={},
+                label='Connexion %s' % utilisateur.username,
+                user=utilisateur,
+            )
         return response
 
 
@@ -123,6 +140,20 @@ class LogoutView(generics.GenericAPIView):
                 token.blacklist()
             except TokenError:
                 pass
+
+        # Même cause que pour la connexion : révoquer un jeton n'appelle pas
+        # `logout()` de Django, donc aucun signal. L'action `LOGOUT` était
+        # déclarée dans le modèle et n'avait jamais produit une seule ligne.
+        write_audit(
+            action=ACTION_LOGOUT, model_name='CustomUser',
+            object_id=str(request.user.pk), changes={},
+            label='Déconnexion %s' % request.user.username,
+            # L'acteur est NOMMÉ ici plutôt que lu dans le contexte de requête :
+            # celui-ci n'est renseigné que si l'authentification par cookie JWT
+            # l'a synchronisé. Pour un événement de sécurité, on ne dépend pas
+            # d'un effet de bord.
+            user=request.user,
+        )
 
         response = Response({'detail': 'Déconnecté avec succès.'}, status=status.HTTP_200_OK)
         response.delete_cookie(JWT_CONF.get('AUTH_COOKIE', 'access_token'))
@@ -189,6 +220,15 @@ class ChangePasswordView(generics.UpdateAPIView):
         request.user.set_password(serializer.validated_data['new_password'])
         request.user.save()
         logger.info('Password changed for user=%s', request.user.username)
+        # `keep_forever` : un changement de mot de passe est l'événement qu'on
+        # vient chercher des mois plus tard, quand un compte a été utilisé par
+        # quelqu'un d'autre. Il ne doit pas tomber avec la purge des 90 jours.
+        write_audit(
+            action=ACTION_PASSWORD_CHANGED, model_name='CustomUser',
+            object_id=str(request.user.pk), changes={},
+            label='Mot de passe modifié par %s' % request.user.username,
+            keep_forever=True, user=request.user,
+        )
         return Response({'detail': 'Mot de passe modifié avec succès.'})
 
 
@@ -228,6 +268,7 @@ class FirstLoginView(generics.GenericAPIView):
         # Changer le username CNI → matricule
         # 1. Si le profil est déjà lié (OneToOne)
         # 2. Sinon, chercher l'Etudiant dont le cni correspond au username courant
+        ancien_username  = user.username
         nouveau_username = user.username
         try:
             etudiant = user.etudiant_profile
@@ -251,6 +292,16 @@ class FirstLoginView(generics.GenericAPIView):
 
         user.save()
         logger.info('First login password changed for user=%s → new_username=%s', user.pk, nouveau_username)
+        # Premier accès : le mot de passe change ET l'identifiant devient le
+        # matricule. Sans trace, on ne peut plus relier les actions passées au
+        # compte — l'ancien nom n'existe plus nulle part. D'où `keep_forever`.
+        write_audit(
+            action=ACTION_PASSWORD_RESET, model_name='CustomUser',
+            object_id=str(user.pk),
+            changes={'username': {'old': ancien_username, 'new': nouveau_username}},
+            label='Premier accès : mot de passe défini (%s)' % nouveau_username,
+            keep_forever=True, user=user,
+        )
         return Response({
             'detail':          'Mot de passe modifié avec succès.',
             'nouveau_username': nouveau_username,
@@ -411,6 +462,17 @@ class UserViewSet(viewsets.ModelViewSet):
             if ip_addr:
                 cache.delete(f'throttle_login_{ip_addr}')
 
+        def _tracer(cible, changes):
+            # Le déblocage rouvrait un compte sans laisser de trace : on ne
+            # savait ni qui l'avait fait, ni pour qui. Or c'est précisément le
+            # geste qui annule une protection — il doit avoir un auteur.
+            write_audit(
+                action=ACTION_ACCOUNT_UNLOCKED, model_name='CustomUser',
+                object_id='0', changes=changes,
+                label='Déblocage : %s, par %s' % (cible, request.user.username),
+                keep_forever=True, user=request.user,
+            )
+
         if reset_all:
             # Récupérer toutes les IPs avant de tout effacer
             ips = list(AccessAttempt.objects.values_list('ip_address', flat=True).distinct())
@@ -418,6 +480,7 @@ class UserViewSet(viewsets.ModelViewSet):
             for ip_addr in ips:
                 _clear_throttle(ip_addr)
             logger.info('All axes+throttle lockouts reset by admin=%s', request.user.username)
+            _tracer('tous les blocages', {'tout': True, 'adresses': len(ips)})
             return Response({'detail': 'Tous les blocages réinitialisés.'})
 
         if not username and not ip:
@@ -440,6 +503,7 @@ class UserViewSet(viewsets.ModelViewSet):
             logger.info('Axes+throttle reset for username=%s by admin=%s', username, request.user.username)
 
         target = username or ip
+        _tracer(target, {'username': username or '', 'ip': ip or ''})
         return Response({'detail': f'{target} débloqué(e).'})
 
 

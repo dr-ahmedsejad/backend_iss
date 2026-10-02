@@ -632,12 +632,31 @@ class EmploisViewSet(InstitutionScopedMixin, DepartementScopedMixin, AuditMixin,
         if dept_ids:
             qs = qs.filter(departement_id__in=dept_ids)
 
+        from core.audit_helpers import audit_aggregate_block, write_audit
+        from core.models import ACTION_BULK_DELETE
+
         with _tx.atomic():
             count = qs.count()
             if count == 0:
                 return Response({'deleted': 0, 'message': 'EDT deja vide.'})
-            # delete() declenche post_delete -> audit par ligne via TRACKED_MODELS
-            qs.delete()
+            # UNE trace pour l'operation, et non une par ligne. `delete()`
+            # declenchait `post_delete` sur chaque ligne d'`Emplois` : vider
+            # l'emploi du temps d'une annee ecrivait des centaines de lignes
+            # identiques au journal, ou l'on ne lisait plus QUI avait vide
+            # QUOI. `BULK_DELETE` etait declare pour cela et n'avait jamais
+            # servi.
+            with audit_aggregate_block():
+                qs.delete()
+            write_audit(
+                action=ACTION_BULK_DELETE, model_name='Emplois', object_id='0',
+                changes={'supprimees': count, 'annee_universitaire': annee,
+                         'type_semestre': ts,
+                         'departements': dept_ids or 'tous'},
+                label="Emploi du temps vidé : %d ligne%s (%s, %s)" % (
+                    count, 's' if count > 1 else '', annee,
+                    'semestres pairs' if ts == 'P' else 'semestres impairs'),
+                user=request.user,
+            )
 
         logger.info('Vider EDT : %d lignes supprimees pour %s/%s depts=%s',
                     count, annee, ts, dept_ids or 'tous')

@@ -30,8 +30,8 @@ from core.audit_helpers import (
     compute_diff, snapshot_instance, write_audit, write_audit_safe,
 )
 from core.models import (
-    ACTION_CREATE, ACTION_DELETE, ACTION_LOGIN_FAILED, ACTION_LOGIN_SUCCESS,
-    ACTION_LOGOUT, ACTION_UPDATE,
+    ACTION_ACCOUNT_LOCKED, ACTION_CREATE, ACTION_DELETE, ACTION_LOGIN_FAILED,
+    ACTION_LOGIN_SUCCESS, ACTION_LOGOUT, ACTION_UPDATE,
 )
 
 logger = logging.getLogger('siga')
@@ -186,6 +186,40 @@ def audit_logout(sender, request, user, **kwargs):
         changes={},
         label=f'Déconnexion {user.username}',
     )
+
+
+def _audit_verrouillage(sender, request=None, username=None, ip_address=None, **kwargs):
+    """Un compte (ou une adresse) vient d'être verrouillé par `django-axes`.
+
+    Le journal gardait chaque échec, mais pas l'événement qui compte : le
+    moment où le système décide de bloquer — et bloque aussi, pendant quinze
+    minutes, le titulaire légitime. Le signal `user_locked_out` existait et
+    n'était connecté à rien.
+
+    `keep_forever` : comme pour les échecs, c'est une trace de sécurité.
+    """
+    from apps.authentication.models import CustomUser
+    compte = CustomUser.objects.filter(username=username).first() if username else None
+    write_audit(
+        action=ACTION_ACCOUNT_LOCKED,
+        model_name='CustomUser',
+        object_id=str(compte.pk) if compte else '0',
+        # Le nom saisi est gardé même s'il ne correspond à aucun compte : c'est
+        # justement le cas d'une attaque par essais de noms.
+        changes={'username_tente': username or '', 'ip': ip_address or ''},
+        label='Verrouillage après échecs répétés : %s (%s)' % (
+            username or 'inconnu', ip_address or 'IP inconnue'),
+        keep_forever=True,
+    )
+
+
+try:
+    # Import différé : `axes` lit sa configuration à l'import, et ce module est
+    # chargé tôt. Sans axes (tests, outils), on ne connecte simplement rien.
+    from axes.signals import user_locked_out
+    user_locked_out.connect(_audit_verrouillage, dispatch_uid='audit_axes_user_locked_out')
+except Exception:                                   # noqa: BLE001
+    pass
 
 
 @receiver(user_login_failed)

@@ -120,15 +120,22 @@ def write_audit(
     label: str = '',
     institution_id: int | None = None,
     keep_forever: bool = False,
+    user=None,
 ) -> None:
-    """Ecrit un AuditLog via transaction.on_commit (asynchrone, safe)."""
+    """Ecrit un AuditLog via transaction.on_commit (asynchrone, safe).
+
+    `user` n'est utile qu'a la CONNEXION : le contexte de requete est pose par
+    le middleware, donc AVANT l'authentification — il n'y a alors personne a
+    inscrire. C'est pourquoi les lignes « connexion reussie » du journal
+    portaient toutes `user=None`.
+    """
     ctx = get_request_context()
 
     def _do_write():
         try:
             from core.models import AuditLog
             AuditLog.objects.create(
-                user        = ctx.get('user'),
+                user        = user or ctx.get('user'),
                 action      = action,
                 model_name  = model_name,
                 object_id   = str(object_id)[:50],

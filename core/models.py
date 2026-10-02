@@ -25,6 +25,12 @@ ACTION_LOGOUT            = 'LOGOUT'
 ACTION_PASSWORD_CHANGED  = 'PASSWORD_CHANGED'
 ACTION_PASSWORD_RESET    = 'PASSWORD_RESET'
 ACTION_PERMISSION_DENIED = 'PERMISSION_DENIED'
+# Verrouillage par `django-axes` après trop d'échecs, et son déblocage par un
+# administrateur. « Échec de connexion » ne les décrit pas : un verrouillage est
+# une DÉCISION du système, qui bloque aussi les tentatives légitimes, et le
+# déblocage est un geste d'administration dont on veut connaître l'auteur.
+ACTION_ACCOUNT_LOCKED    = 'ACCOUNT_LOCKED'
+ACTION_ACCOUNT_UNLOCKED  = 'ACCOUNT_UNLOCKED'
 
 ACTION_CHOICES = [
     (ACTION_CREATE,            'Création'),
@@ -41,6 +47,8 @@ ACTION_CHOICES = [
     (ACTION_PASSWORD_CHANGED,  'Mot de passe modifié'),
     (ACTION_PASSWORD_RESET,    'Réinitialisation MDP'),
     (ACTION_PERMISSION_DENIED, 'Accès refusé'),
+    (ACTION_ACCOUNT_LOCKED,    'Compte verrouillé'),
+    (ACTION_ACCOUNT_UNLOCKED,  'Compte débloqué'),
 ]
 
 
