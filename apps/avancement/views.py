@@ -24,6 +24,7 @@ from apps.prof.models import Prof
 from apps.departement.models import Departement
 from apps.em.models import EM as EMModel, EM
 from apps.parametres.models import Seance, Paiement
+from core.telechargement import entete_piece_jointe
 
 logger = logging.getLogger('siga')
 
@@ -1761,7 +1762,7 @@ class ChargePermanentsMensuelExcelView(APIView):
             buffer.read(),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Content-Disposition'] = entete_piece_jointe(filename)
         return response
 
 

@@ -82,3 +82,39 @@ class TestCaracteresDangereux:
     def test_une_extension_seule_suffit_comme_secours(self):
         """« جدول.pdf » garde au moins son extension : inutile de tout remplacer."""
         assert 'filename=".pdf"' in entete_piece_jointe('جدول.pdf')
+
+
+# ── Partout, la même fonction ─────────────────────────────────────────────────
+
+class TestPartout:
+    """L'en-tête n'était bien formé qu'à deux endroits ; vingt autres l'écrivaient
+    à la main, et un nom accentué y perdait son nom de fichier. apps/suivi et
+    apps/vacation ne sont jamais modifiés : ils restent les seules exceptions."""
+
+    EXCEPTIONS = ('apps/suivi/', 'apps/vacation/')
+
+    def test_aucun_entete_ecrit_a_la_main(self):
+        import pathlib
+        import re
+        racine = pathlib.Path(__file__).resolve().parent.parent
+        fautifs = []
+        for f in list((racine / 'apps').rglob('*.py')) + list((racine / 'core').rglob('*.py')):
+            rel = f.relative_to(racine).as_posix()
+            if any(rel.startswith(e) for e in self.EXCEPTIONS) or '/migrations/' in rel \
+                    or rel.endswith('core/telechargement.py') or f.name.startswith('test'):
+                continue
+            for n, ligne in enumerate(f.read_text(encoding='utf-8').splitlines(), 1):
+                if re.search(r"""['"](attachment|inline); filename=""", ligne):
+                    fautifs.append(f'{rel}:{n}')
+        assert fautifs == [], 'En-tête écrit à la main : ' + ', '.join(fautifs)
+
+    def test_par_une_vraie_adresse_de_telechargement(self, db):
+        """L'export du journal d'audit, téléchargé par un administrateur."""
+        from rest_framework.test import APIClient
+        from tests.factories.auth import UserFactory
+        c = APIClient()
+        c.force_authenticate(UserFactory(username='adm_csv', role='admin', is_superuser=True))
+        r = c.get('/api/v1/audit/export/')
+        assert r.status_code == 200, r.status_code
+        entete = r['Content-Disposition']
+        assert entete.startswith('attachment; filename="audit_') and "filename*=UTF-8''" in entete

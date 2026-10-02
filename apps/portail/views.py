@@ -15,6 +15,7 @@ from apps.absence.models import Presence
 from apps.reclamations.models import Reclamation
 from apps.reclamations.serializers import ReclamationCreateSerializer, ReclamationSerializer
 from .serializers import ProfilEtudiantSerializer, AbsenceEtudiantSerializer
+from core.telechargement import entete_piece_jointe
 
 # ── Suivi des générations PDF en cours ────────────────────────────────────────
 # Évite de lancer plusieurs wkhtmltopdf simultanément pour le même document.
@@ -770,7 +771,7 @@ class TelechargerDirectView(APIView):
             doc.save(update_fields=['premiere_generation', 'fichier_pdf'])
 
         response = HttpResponse(pdf_content, content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Content-Disposition'] = entete_piece_jointe(filename)
         response['Content-Length'] = len(pdf_content)
         response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         response['Pragma'] = 'no-cache'
@@ -814,7 +815,7 @@ class TelechargerDocumentView(APIView):
                 return Response({'detail': 'Fichier non disponible.'}, status=status.HTTP_404_NOT_FOUND)
 
             response = FileResponse(open(doc.fichier_pdf.path, 'rb'), content_type='application/pdf')
-            response['Content-Disposition'] = f'attachment; filename="{os.path.basename(doc.fichier_pdf.name)}"'
+            response['Content-Disposition'] = entete_piece_jointe(os.path.basename(doc.fichier_pdf.name))
             response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
             response['Pragma'] = 'no-cache'
             return response

@@ -31,6 +31,7 @@ from core.permissions import IsAdminOrIT
 from .filters import AuditLogFilter
 from .serializers import _compte
 from .serializers import AuditLogListSerializer, AuditLogSerializer
+from core.telechargement import entete_piece_jointe
 
 
 class _Echo:
@@ -167,5 +168,5 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
 
         resp = StreamingHttpResponse(rows(), content_type='text/csv')
         ts = timezone.now().strftime('%Y%m%d_%H%M%S')
-        resp['Content-Disposition'] = f'attachment; filename="audit_{ts}.csv"'
+        resp['Content-Disposition'] = entete_piece_jointe(f'audit_{ts}.csv')
         return resp

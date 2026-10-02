@@ -13,6 +13,7 @@ from .models import DocumentOfficiel, RegistreDiplome
 from .serializers import (
     DocumentOfficielSerializer, RegistreDiplomeSerializer, DocumentVerificationSerializer,
 )
+from core.telechargement import entete_piece_jointe
 
 
 class VerificationThrottle(AnonRateThrottle):
@@ -163,7 +164,7 @@ class DocumentOfficielViewSet(InstitutionScopedMixin, viewsets.ReadOnlyModelView
         fname = '_'.join(p for p in (type_doc, sem_code, fil_code, niv_code,
                                      (annee or '').replace('-', '_')) if p) + '.pdf'
         resp = HttpResponse(pdf_bytes, content_type='application/pdf')
-        resp['Content-Disposition'] = f'inline; filename="{fname}"'
+        resp['Content-Disposition'] = entete_piece_jointe(fname, inline=True)
         resp['X-Generated'] = str(nb_ok)
         resp['X-Total']     = str(nb_total)
         resp['Access-Control-Expose-Headers'] = 'X-Generated, X-Total'
@@ -251,7 +252,7 @@ class DocumentOfficielViewSet(InstitutionScopedMixin, viewsets.ReadOnlyModelView
             doc.save(update_fields=['premiere_generation', 'fichier_pdf'])
 
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Content-Disposition'] = entete_piece_jointe(filename)
         # Anti-cache navigateur : sans ça, un re-téléchargement à la même URL peut
         # resservir l'ancien PDF gardé par le navigateur ("je vois pas de changement").
         response['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
@@ -363,7 +364,7 @@ class RegistreDiplomeViewSet(InstitutionScopedMixin, viewsets.ReadOnlyModelViewS
         wb.save(buf)
         buf.seek(0)
         resp = HttpResponse(buf.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        resp['Content-Disposition'] = 'attachment; filename="registre_diplomes.xlsx"'
+        resp['Content-Disposition'] = entete_piece_jointe('registre_diplomes.xlsx')
         return resp
 
     @action(detail=False, methods=['get'], url_path='export-ministere')
@@ -438,5 +439,5 @@ class RegistreDiplomeViewSet(InstitutionScopedMixin, viewsets.ReadOnlyModelViewS
         wb.save(buf)
         buf.seek(0)
         resp = HttpResponse(buf.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        resp['Content-Disposition'] = 'attachment; filename="diplomes_licence_L3_ministere.xlsx"'
+        resp['Content-Disposition'] = entete_piece_jointe('diplomes_licence_L3_ministere.xlsx')
         return resp
