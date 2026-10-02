@@ -170,3 +170,34 @@ class TestUnePage:
         assert r.status_code == 200
         assert essais == [None, '0.9']
         assert r.content == pdf_de(1)
+
+
+# ── Le PDF d'une salle dit devant QUI on enseigne ────────────────────────────
+
+class TestGroupesSurLaSalle:
+    """La vue calculait les groupes d'une case de salle ; le gabarit ne les
+    imprimait pas. On savait qui occupait la salle, pas devant quels étudiants."""
+
+    def test_la_salle_imprime_l_enseignant_puis_les_groupes(self, monde, gens):
+        poser(monde, 'G2')
+        poser(monde, 'G1')                       # le même cours, partagé
+        html = html_du_pdf(gens['admin'], salle=monde['salles']['101'].pk)
+        assert '<div class="groupes">' in html
+        bloc = html.split('<div class="prof-name">', 1)[1]
+        enseignant, groupes = bloc.split('<div class="groupes">', 1)
+        assert 'Moustapha' in enseignant
+        # Triés, et sur une seule ligne : un cours, une case.
+        assert groupes.split('</div>', 1)[0].strip() == 'G1, G2'
+
+    def test_le_pdf_d_un_groupe_n_a_pas_de_ligne_de_plus(self, monde, gens):
+        """Le groupe est dans le titre : le répéter dans chaque case est du bruit."""
+        poser(monde, 'G1')
+        html = html_du_pdf(gens['admin'], departement=monde['depts']['G1'].pk)
+        assert '<div class="groupes">' not in html
+
+    def test_le_pdf_d_un_enseignant_n_imprime_pas_les_groupes_deux_fois(self, monde, gens):
+        """Chez lui, les groupes occupent DÉJÀ la ligne du nom."""
+        poser(monde, 'G1')
+        html = html_du_pdf(gens['admin'], prof=monde['profs']['Moustapha'].pk)
+        assert '<div class="groupes">' not in html
+        assert 'G1' in html.split('<div class="prof-name">', 1)[1].split('</div>', 1)[0]

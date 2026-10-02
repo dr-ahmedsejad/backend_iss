@@ -56,6 +56,9 @@
             font-weight: bold;
             margin-top:10px;
         }
+        .groupes {
+            margin-top: 2px;
+        }
 
         table {
             width: 100%;
@@ -178,6 +181,18 @@ n'est pas reconnu et s'imprime dans le PDF.)
                     <div class="prof-name">
                         {{ cours_detail.prof_nom }}
                     </div>
+                    {% comment %}
+                    Sur l'emploi d'une SALLE, la ligne du dessus porte
+                    l'enseignant : les groupes viennent ici. Sans eux, on
+                    savait qui occupait la salle, pas devant quels étudiants.
+                    Les autres vues ne fournissent pas `groupes` : rien ne
+                    s'imprime chez elles.
+                    {% endcomment %}
+                    {% if cours_detail.groupes %}
+                    <div class="groupes">
+                        {{ cours_detail.groupes }}
+                    </div>
+                    {% endif %}
                 {% endif %}
             {% endfor %}
         </td>
