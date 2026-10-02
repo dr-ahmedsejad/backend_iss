@@ -73,6 +73,10 @@ def render_pdf_response(template_name, context, filename, orientation='Portrait'
         logger.error('pdfkit error: %s', exc)
         return Response({'error': f'Erreur génération PDF : {exc}'}, status=500)
 
+    from core.telechargement import entete_piece_jointe
+
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    # Un nom accentué encodait tout l'en-tête au format des courriels, que les
+    # navigateurs ne lisent pas — voir `core/telechargement`.
+    response['Content-Disposition'] = entete_piece_jointe(filename)
     return response

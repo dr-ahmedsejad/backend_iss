@@ -867,9 +867,11 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
             return Response({'detail': 'Erreur lors de la génération du PDF.'},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        from core.telechargement import entete_piece_jointe
+
         nom = f'emploi_{titre}_S{p["numero_semaine"]}.pdf'.replace(' ', '_')
         reponse = HttpResponse(octets, content_type='application/pdf')
-        reponse['Content-Disposition'] = f'attachment; filename="{nom}"'
+        reponse['Content-Disposition'] = entete_piece_jointe(nom)
         return reponse
 
     @action(detail=False, methods=['get'], url_path='coherence')
