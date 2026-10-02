@@ -234,21 +234,37 @@ class SemaineViewSet(AuditMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='actif')
     def actif(self, request):
-        """Retourne le type_semestre actif aujourd'hui d'apres la table Semaine.
-        Si aucune semaine ne match la date du jour, fallback sur la derniere
-        semaine passee. Utilise par la page de login pour pre-cocher le bon
-        semestre dans le selecteur."""
+        """La periode a proposer d'emblee, d'apres la table Semaine.
+
+        Lue par la page de CONNEXION pour pre-cocher l'annee et le semestre.
+
+        Hors periode, on prend la semaine la PLUS PROCHE — en avant comme en
+        arriere. L'ancienne regle preferait systematiquement le passe : le
+        02/10/2026, elle proposait le semestre PAIR de 2025-2026, dont la
+        derniere semaine remontait a 104 jours, alors que l'impair de 2026-2027
+        commencait 3 jours plus tard. Chacun devait corriger l'annee ET la
+        periode a chaque connexion, et une erreur d'inattention faisait saisir
+        dans l'annee revolue.
+
+        A egale distance, c'est la semaine A VENIR qui l'emporte : entre un
+        semestre qu'on termine et un qu'on entame, c'est le second qu'on ouvre.
+        """
         from datetime import date as _date
         today = _date.today()
 
         # 1. Match exact sur la date du jour
         match = Semaine.objects.filter(date=today).order_by('-date').first()
-        # 2. Fallback : derniere semaine <= today (inter-semestres)
+        source = 'exact'
+
+        # 2. Hors periode : la plus proche des deux voisines.
         if not match:
-            match = Semaine.objects.filter(date__lte=today).order_by('-date').first()
-        # 3. Ultime fallback : la 1ere semaine future (debut d'annee)
-        if not match:
-            match = Semaine.objects.filter(date__gt=today).order_by('date').first()
+            passee = Semaine.objects.filter(date__lt=today).order_by('-date').first()
+            future = Semaine.objects.filter(date__gt=today).order_by('date').first()
+            if passee and future:
+                match = future if (future.date - today) <= (today - passee.date) else passee
+            else:
+                match = future or passee
+            source = 'proche'
 
         if not match:
             return Response({'type_semestre': 'I', 'annee_universitaire': '', 'source': 'default'})
@@ -257,7 +273,9 @@ class SemaineViewSet(AuditMixin, viewsets.ModelViewSet):
             'annee_universitaire': match.annee_universitaire,
             'numero_semaine':      match.numero_semaine,
             'date_reference':      str(match.date),
-            'source':              'exact' if match.date == today else 'fallback',
+            # `fallback` est conserve : le frontend s'en sert pour distinguer une
+            # proposition d'une certitude.
+            'source':              source if source == 'exact' else 'fallback',
         })
 
     @action(detail=False, methods=['post'], url_path='generer')
