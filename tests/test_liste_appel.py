@@ -1,0 +1,189 @@
+"""
+Qui figure sur la fiche d'appel d'une séance.
+
+L'écran et le PDF prenaient le GROUPE entier. Mesuré sur `iss` le 02/10/2026 :
+
+  * sur l'élément `ST41` du groupe #44, dix noms pour trois étudiants
+    réellement inscrits — les sept autres l'avaient validé une année
+    précédente, et une absence notée pour eux est fausse ;
+  * quatorze inscriptions de l'année portaient sur un élément que le groupe de
+    l'étudiant n'enseigne pas. Ces DETTES ne figuraient sur aucune fiche : ces
+    étudiants ne pouvaient jamais être pointés.
+
+La source juste est `InscriptionElement`. Mais elle n'est pas toujours saisie :
+filtrer strictement rendrait alors une fiche VIDE, pire que trop de noms. D'où
+le repli sur le groupe, et le champ `source` qui le DIT.
+"""
+import pytest
+
+from tests._edt_decor import ANNEE, api, gens, monde  # noqa: F401
+
+URL = '/api/v1/absences/presences/liste-appel/'
+
+
+# ── Décor ────────────────────────────────────────────────────────────────────
+
+def etudiant(monde, groupe, matricule):
+    from apps.absence.models import Etudiant
+    return Etudiant.objects.create(matricule=matricule, nom='Nom%s' % matricule,
+                                   departement=monde['depts'][groupe])
+
+
+def inscrire(monde, etu, em, annee=None):
+    """Inscription administrative + pédagogique + à l'élément."""
+    from apps.inscriptions.models import (InscriptionAdministrative,
+                                          InscriptionElement,
+                                          InscriptionPedagogique)
+    from apps.parametres.models import Year
+    annee = annee or ANNEE
+    an, _ = Year.objects.get_or_create(annee=annee)
+    ia, _ = InscriptionAdministrative.objects.get_or_create(
+        etudiant=etu, annee_univ=an,
+        defaults={'filiere': monde['f_sea'], 'niveau': 1,
+                  'institution': monde['inst'],
+                  # Unique en base : sans valeur distincte, deux étudiants
+                  # inscrits la même année s'y heurtent.
+                  'numero_inscription': 'INS-%s-%s' % (annee, etu.matricule)})
+    ip, _ = InscriptionPedagogique.objects.get_or_create(
+        inscription_admin=ia, semestre=monde['s1'])
+    return InscriptionElement.objects.create(inscription_ped=ip, em=monde['ems'][em])
+
+
+def seance(monde, groupe, em, jour='Lundi'):
+    """Une séance : c'est elle qui dit quel groupe ENSEIGNE l'élément."""
+    from apps.edt.models import SeanceReelle
+    return SeanceReelle.objects.create(
+        departement=monde['depts'][groupe], semaine=monde['semaines'][(1, jour)],
+        creneau_fk=monde['creneaux']['08h00-09h30'], em=monde['ems'][em],
+        prof=monde['profs']['Moustapha'], salle=monde['salles']['101'],
+        type_seance_fk=monde['cm'])
+
+
+def appel(monde, groupe, em):
+    from apps.absence.liste_appel import liste_appel
+    return liste_appel(monde['depts'][groupe].id, monde['ems'][em].id, ANNEE)
+
+
+def matricules(liste):
+    return sorted(e.matricule for e in liste)
+
+
+# ── La règle ─────────────────────────────────────────────────────────────────
+
+class TestInscrits:
+
+    def test_seuls_les_inscrits_a_l_element_figurent(self, monde):
+        """Le cas de production : trois inscrits sur dix présents au groupe."""
+        suit = etudiant(monde, 'G1', '001')
+        ne_suit_pas = etudiant(monde, 'G1', '002')          # a déjà validé, ailleurs
+        inscrire(monde, suit, 'SEA11')
+
+        r = appel(monde, 'G1', 'SEA11')
+        assert matricules(r['etudiants']) == ['001']
+        assert r['source'] == 'inscriptions'
+        assert ne_suit_pas.matricule not in matricules(r['etudiants'])
+
+    def test_une_inscription_a_un_AUTRE_element_ne_compte_pas(self, monde):
+        e = etudiant(monde, 'G1', '003')
+        inscrire(monde, e, 'SEA12')
+        assert appel(monde, 'G1', 'SEA11')['source'] == 'groupe'
+
+    def test_une_inscription_d_une_AUTRE_annee_ne_compte_pas(self, monde):
+        from tests._edt_decor import ANNEE_SUIVANTE
+        e = etudiant(monde, 'G1', '004')
+        inscrire(monde, e, 'SEA11', annee=ANNEE_SUIVANTE)
+        assert appel(monde, 'G1', 'SEA11')['source'] == 'groupe'
+
+
+class TestDettes:
+
+    def test_un_inscrit_d_un_autre_groupe_est_rattache_a_la_fiche(self, monde):
+        """Sans cela, il ne figure sur AUCUNE fiche et n'est jamais pointé."""
+        local = etudiant(monde, 'G1', '010')
+        ailleurs = etudiant(monde, 'SDID L2', '011')
+        inscrire(monde, local, 'SEA11')
+        inscrire(monde, ailleurs, 'SEA11')
+        seance(monde, 'G1', 'SEA11')                 # G1 enseigne l'élément
+
+        r = appel(monde, 'G1', 'SEA11')
+        assert matricules(r['etudiants']) == ['010']
+        assert matricules(r['dettes']) == ['011']
+
+    def test_un_inscrit_dont_le_groupe_ENSEIGNE_l_element_n_est_pas_une_dette(self, monde):
+        """Il a sa propre fiche : l'ajouter ici le ferait pointer deux fois."""
+        local = etudiant(monde, 'G1', '020')
+        voisin = etudiant(monde, 'G2', '021')
+        inscrire(monde, local, 'SEA11')
+        inscrire(monde, voisin, 'SEA11')
+        seance(monde, 'G1', 'SEA11')
+        seance(monde, 'G2', 'SEA11')                 # G2 l'enseigne aussi
+
+        assert appel(monde, 'G1', 'SEA11')['dettes'] == []
+
+    def test_sans_inscription_dans_le_groupe_aucune_dette_n_est_rattachee(self, monde):
+        """La fiche est déjà une liste non vérifiée : y ajouter des noms venus
+        d'ailleurs la rendrait incompréhensible."""
+        etudiant(monde, 'G1', '030')
+        ailleurs = etudiant(monde, 'SDID L2', '031')
+        inscrire(monde, ailleurs, 'SEA11')
+
+        r = appel(monde, 'G1', 'SEA11')
+        assert r['source'] == 'groupe'
+        assert r['dettes'] == []
+
+
+class TestRepli:
+
+    def test_sans_aucune_inscription_on_garde_le_groupe_entier(self, monde):
+        """Une fiche vide serait pire que trop de noms."""
+        etudiant(monde, 'G1', '040')
+        etudiant(monde, 'G1', '041')
+        r = appel(monde, 'G1', 'SEA11')
+        assert matricules(r['etudiants']) == ['040', '041']
+        assert r['source'] == 'groupe'
+
+    def test_une_seance_sans_element_garde_le_groupe(self, monde):
+        """Sport, instruction militaire : aucune inscription pédagogique à lire."""
+        from apps.absence.liste_appel import liste_appel
+        etudiant(monde, 'G1', '050')
+        r = liste_appel(monde['depts']['G1'].id, None, ANNEE)
+        assert matricules(r['etudiants']) == ['050']
+        assert r['source'] == 'groupe'
+
+
+# ── L'adresse, celle que l'écran consomme ────────────────────────────────────
+
+class TestAdresse:
+
+    def test_l_ecran_et_le_pdf_lisent_la_meme_regle(self, monde, gens):
+        suit = etudiant(monde, 'G1', '060')
+        etudiant(monde, 'G1', '061')
+        ailleurs = etudiant(monde, 'SDID L2', '062')
+        inscrire(monde, suit, 'SEA11')
+        inscrire(monde, ailleurs, 'SEA11')
+        seance(monde, 'G1', 'SEA11')
+
+        r = api(gens['admin']).get(URL, {
+            'departement': monde['depts']['G1'].id, 'em': monde['ems']['SEA11'].id,
+            'annee_universitaire': ANNEE})
+        assert r.status_code == 200
+        assert [e['matricule'] for e in r.data['etudiants']] == ['060']
+        assert [e['matricule'] for e in r.data['dettes']] == ['062']
+        assert r.data['dettes'][0]['groupe'] == 'SDID L2'
+        assert r.data['liste_non_verifiee'] is False
+
+    def test_la_liste_non_verifiee_est_annoncee(self, monde, gens):
+        etudiant(monde, 'G1', '070')
+        r = api(gens['admin']).get(URL, {
+            'departement': monde['depts']['G1'].id, 'em': monde['ems']['SEA11'].id,
+            'annee_universitaire': ANNEE})
+        assert r.data['liste_non_verifiee'] is True
+        assert r.data['source'] == 'groupe'
+
+    def test_les_parametres_obligatoires_sont_exiges(self, monde, gens):
+        assert api(gens['admin']).get(URL, {'em': 1}).status_code == 400
+
+    def test_sans_connexion_c_est_refuse(self, monde):
+        from rest_framework.test import APIClient
+        assert APIClient().get(URL, {'departement': 1, 'annee_universitaire': ANNEE}
+                               ).status_code in (401, 403)

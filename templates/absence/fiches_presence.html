@@ -149,7 +149,7 @@
     <hr class="thin">
 
     <!-- Liste étudiants -->
-    {% if fiche.etudiants %}
+    {% if fiche.etudiants or fiche.dettes %}
     <table class="etu-table">
         <thead>
             <tr>
@@ -166,8 +166,30 @@
                 <td class="col-abs">&nbsp;</td>
             </tr>
             {% endfor %}
+            {# Les DETTES : inscrits à cet élément, mais d'un autre groupe — qui
+               ne l'enseigne pas. Sans eux, ils ne figuraient sur aucune fiche et
+               ne pouvaient jamais être pointés. Leur groupe est écrit : un nom
+               venu d'ailleurs qu'on prendrait pour un camarade de promotion
+               ferait douter de toute la liste. #}
+            {% for etu in fiche.dettes %}
+            <tr>
+                <td class="col-mat" style="text-align:center;"><span class="mat-code">{{ etu.matricule }}</span></td>
+                <td class="col-nom">{{ etu.nom }}
+                    <span style="font-size:9px; color:#555;">— dette · {{ etu.groupe }}</span></td>
+                <td class="col-abs">&nbsp;</td>
+            </tr>
+            {% endfor %}
         </tbody>
     </table>
+
+    {# Inscriptions pédagogiques non saisies pour cet élément : la liste est
+       celle du GROUPE, donc non vérifiée. On l'écrit plutôt que de la laisser
+       passer pour une liste contrôlée. #}
+    {% if fiche.liste_non_verifiee %}
+    <p style="font-size:9px; color:#666; font-style:italic; margin:2px 0 0;">
+        Liste du groupe entier : les inscriptions à cet élément n'ont pas été saisies.
+    </p>
+    {% endif %}
 
     <div class="sig-block">
         <p>{% if fiche.is_surveillance %}Nom et Signature du surveillant{% else %}Signature du professeur{% endif %}</p>

@@ -980,14 +980,29 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
             seen.add(key)
             suivies_unique.append(s)
 
-        # Charger les étudiants par département
-        dep_ids = {s.departement_id for s in suivies_unique if s.departement_id}
-        etudiants_by_dep: dict = defaultdict(list)
-        for did in dep_ids:
-            etudiants_by_dep[did] = list(
-                Etudiant.objects.filter(departement_id=did).order_by('matricule')
-                .values('matricule', 'nom', 'genre')
-            )
+        # Qui doit figurer sur chaque fiche — voir `apps.absence.liste_appel`.
+        # La liste se calcule par SÉANCE (groupe ET élément), non par groupe :
+        # un étudiant qui a déjà validé l'élément n'a rien à y faire, et un
+        # étudiant d'un autre groupe qui le suit EN DETTE doit y figurer.
+        from apps.absence.liste_appel import SOURCE_GROUPE, liste_appel
+
+        def _resume(e, avec_groupe=False):
+            d = {'matricule': e.matricule, 'nom': e.nom, 'genre': e.genre}
+            if avec_groupe:
+                d['groupe'] = e.departement.nom if e.departement_id else ''
+            return d
+
+        listes: dict = {}
+        for s in suivies_unique:
+            cle = (s.departement_id, s.em_id)
+            if cle in listes or not s.departement_id:
+                continue
+            r = liste_appel(s.departement_id, s.em_id, annee)
+            listes[cle] = {
+                'etudiants': [_resume(e) for e in r['etudiants']],
+                'dettes':    [_resume(e, avec_groupe=True) for e in r['dettes']],
+                'liste_non_verifiee': r['source'] == SOURCE_GROUPE,
+            }
 
         # Construire les fiches
         from apps.departement.models import Departement as DepModel
@@ -1028,7 +1043,8 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
                 'em_intitule':  s.em.intitule if s.em_id else '—',
                 'prof_nom':     s.prof.nom if s.prof_id else '—',
                 'salle_nom':    s.salle.nom if s.salle_id else '—',
-                'etudiants':    etudiants_by_dep.get(s.departement_id, []),
+                **listes.get((s.departement_id, s.em_id),
+                             {'etudiants': [], 'dettes': [], 'liste_non_verifiee': True}),
             })
 
         html = render_to_string('absence/fiches_presence.html', {
@@ -1037,11 +1053,47 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
             'numero_semaine':     semaine,
             **inst_ctx,
         })
+        from core.telechargement import entete_piece_jointe
+
         pdf      = self._make_pdf(html)
         filename = f"fiches-presence-S{semaine}-{annee}.pdf".replace(' ', '_')
         response = HttpResponse(pdf, content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Content-Disposition'] = entete_piece_jointe(filename)
         return response
+
+    # ── GET /api/v1/absences/presences/liste-appel/ ───────────────────────
+    @action(detail=False, methods=['get'], url_path='liste-appel')
+    def liste_appel_action(self, request):
+        """Qui doit figurer sur la fiche d'appel d'une séance.
+
+        Params : departement, em (optionnel), annee_universitaire.
+
+        L'ÉCRAN et le PDF lisent la même fonction : deux implémentations
+        séparées, qui se trouvaient concorder, auraient dérivé à la première
+        correction.
+        """
+        from apps.absence.liste_appel import SOURCE_GROUPE, liste_appel
+
+        dep = request.query_params.get('departement')
+        annee = request.query_params.get('annee_universitaire')
+        if not dep or not annee:
+            return Response({'detail': 'departement et annee_universitaire requis.'},
+                            status=400)
+        em = request.query_params.get('em') or None
+        r = liste_appel(int(dep), int(em) if em else None, annee)
+
+        def _resume(e, avec_groupe=False):
+            d = {'id': e.id, 'matricule': e.matricule, 'nom': e.nom, 'genre': e.genre}
+            if avec_groupe:
+                d['groupe'] = e.departement.nom if e.departement_id else ''
+            return d
+
+        return Response({
+            'source':    r['source'],
+            'etudiants': [_resume(e) for e in r['etudiants']],
+            'dettes':    [_resume(e, avec_groupe=True) for e in r['dettes']],
+            'liste_non_verifiee': r['source'] == SOURCE_GROUPE,
+        })
 
     # ── Rapport HTML par département (une page par étudiant) ──────────────────
     @action(detail=False, methods=['get'], url_path='rapport-departement-pdf',
