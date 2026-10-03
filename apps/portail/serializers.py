@@ -51,6 +51,13 @@ class NoteEtudiantSerializer(serializers.Serializer):
     credits     = serializers.SerializerMethodField()
     semestre    = serializers.SerializerMethodField()
     annee_univ  = serializers.SerializerMethodField()
+    # Dernière saisie ou correction d'une note de l'élément : l'accueil de
+    # l'app mobile affiche les dernières notes en premier.
+    date_note   = serializers.SerializerMethodField()
+
+    def get_date_note(self, obj):
+        dates = [n.date_modification for n in obj.notes.all() if getattr(n, 'date_modification', None)]
+        return max(dates).isoformat() if dates else None
 
     def _notes_map(self, obj):
         """Cache {type_note: valeur} depuis le prefetch_related('notes')."""
@@ -146,10 +153,12 @@ class AbsenceEtudiantSerializer(serializers.ModelSerializer):
     suivi_semaine = serializers.IntegerField(source='suivi.numero_semaine',      read_only=True)
     suivi_creneau = serializers.CharField(source='suivi.creneau_fk.creneau',     read_only=True, default=None)
     suivi_type    = serializers.CharField(source='suivi.type_seance_fk.type_seance', read_only=True, default=None)
+    suivi_annee   = serializers.CharField(source='suivi.annee_universitaire',  read_only=True, default=None)
 
     class Meta:
         model  = Presence
         fields = [
             'id', 'statut', 'statut_label', 'commentaire', 'date_modification',
             'suivi_jour', 'suivi_creneau', 'suivi_type', 'suivi_em', 'suivi_prof', 'suivi_semaine',
+            'suivi_annee',
         ]

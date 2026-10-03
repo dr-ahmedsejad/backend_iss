@@ -6,10 +6,12 @@ from .views import (
     DocumentsDisponiblesView, TelechargerDirectView,
     MesReclamationsView, DetailReclamationView,
     SemaniesEtudiantView, PeriodesReclamationActivesView,
+    MesAnneesView,
 )
 
 urlpatterns = [
     path('semaines/',                        SemaniesEtudiantView.as_view(),   name='portail-semaines'),
+    path('annees/',                         MesAnneesView.as_view(),          name='portail-annees'),
     path('profil/',                         MonProfilView.as_view(),          name='portail-profil'),
     path('emploi-du-temps/',                MonEmploiView.as_view(),          name='portail-emploi'),
     path('absences/',                       MesAbsencesView.as_view(),        name='portail-absences'),

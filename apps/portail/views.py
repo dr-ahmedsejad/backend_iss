@@ -44,6 +44,38 @@ class MonProfilView(generics.RetrieveUpdateAPIView):
 
 
 # ── Emploi du temps ───────────────────────────────────────────────────────────
+def _annee_demandee(request):
+    """Année universitaire consultée (« 2025-2026 »), passée en `?annee=` par
+    l'app mobile pour revoir une année passée ; None = année en cours."""
+    return (request.query_params.get('annee') or '').strip() or None
+
+
+class MesAnneesView(APIView):
+    """GET /api/v1/portail/annees/
+    Années où l'étudiant a été inscrit, de la plus récente à la plus ancienne :
+    l'app mobile permet de revoir une année passée (emploi du temps, notes,
+    absences). La première est l'année en cours.
+    """
+    permission_classes = [IsEtudiant]
+
+    def get(self, request):
+        from apps.inscriptions.models import InscriptionAdministrative
+        etudiant = _get_etudiant(request)
+        vues, annees = set(), []
+        for ia in (InscriptionAdministrative.objects.filter(etudiant=etudiant)
+                   .select_related('annee_univ', 'filiere').order_by('-annee_univ__annee')):
+            if ia.annee_univ.annee in vues:
+                continue
+            vues.add(ia.annee_univ.annee)
+            annees.append({
+                'annee':   ia.annee_univ.annee,
+                'filiere': getattr(ia.filiere, 'code', '') if ia.filiere_id else '',
+                'niveau':  ia.niveau,
+                'courante': not annees,
+            })
+        return Response(annees)
+
+
 class MonEmploiView(APIView):
     """GET /api/v1/portail/emploi-du-temps/
     Retourne la grille emploi du temps de l'étudiant (même format que suivi/grille).
@@ -60,9 +92,11 @@ class MonEmploiView(APIView):
         etudiant = _get_etudiant(request)
 
         # ── Déterminer annee_universitaire + semestre_id depuis l'inscription péda ──
-        ip = InscriptionPedagogique.objects.filter(
-            inscription_admin__etudiant=etudiant,
-        ).select_related('semestre', 'inscription_admin__annee_univ').order_by(
+        ips = InscriptionPedagogique.objects.filter(inscription_admin__etudiant=etudiant)
+        annee_param = _annee_demandee(request)
+        if annee_param:
+            ips = ips.filter(inscription_admin__annee_univ__annee=annee_param)
+        ip = ips.select_related('semestre', 'inscription_admin__annee_univ').order_by(
             '-inscription_admin__annee_univ__annee'
         ).first()
 
@@ -219,8 +253,11 @@ class MesAbsencesView(APIView):
         qs = Presence.objects.select_related(
             'suivi__creneau_fk', 'suivi__em', 'suivi__prof', 'suivi__jour_fk',
         ).filter(etudiant=etudiant).exclude(statut=0).order_by(
-            '-suivi__numero_semaine', 'suivi__jour_fk__jour'
+            '-suivi__annee_universitaire', '-suivi__numero_semaine', 'suivi__jour_fk__jour'
         )
+        annee = _annee_demandee(request)
+        if annee:
+            qs = qs.filter(suivi__annee_universitaire=annee)
         serializer = AbsenceEtudiantSerializer(qs, many=True)
         return Response(serializer.data)
 
@@ -238,7 +275,11 @@ class MesNotesView(APIView):
             etudiant = _get_etudiant(request)
             inscriptions_ped = InscriptionPedagogique.objects.filter(
                 inscription_admin__etudiant=etudiant,
-            ).values_list('id', flat=True)
+            )
+            annee = _annee_demandee(request)
+            if annee:
+                inscriptions_ped = inscriptions_ped.filter(inscription_admin__annee_univ__annee=annee)
+            inscriptions_ped = inscriptions_ped.values_list('id', flat=True)
 
             elements = (
                 InscriptionElement.objects
