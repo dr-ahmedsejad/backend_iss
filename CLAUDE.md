@@ -20,8 +20,11 @@ Toutes les routes sont préfixées `/api/v1/`. Auth par cookies httpOnly + JWT (
   Dev = `siga.settings.development` (DEBUG, SQL loggé en console, BrowsableAPIRenderer).
 - **Auth** : `core.authentication.CookieJWTAuthentication` — access 60 min / refresh 7 j,
   rotation + blacklist. Cookies `access_token` / `refresh_token`, httpOnly, SameSite=Lax.
-- **Sécurité** : `django-axes` (5 échecs / cooloff 15 min, lockout par IP → 429 JSON),
-  throttles par vue (`login` 5/15min, `sensitive_endpoint` 5/h, `backup_download` 10/h…).
+- **Sécurité** : `django-axes`, seuls les ÉCHECS comptent (`apps/authentication/tentatives.py`) :
+  5 échecs pour un compte depuis une adresse → ce couple bloqué 15 min ; `LOGIN_ECHECS_PAR_IP`
+  (20) échecs depuis une adresse, tous comptes confondus → l'adresse bloquée ; 429 JSON avec le
+  temps restant. Adresse réelle = `X-Real-IP` posé par nginx (`core/ip_client.py`).
+  Throttles par vue (`login` 5/15min sur refresh et premier accès, `sensitive_endpoint` 5/h…).
 - **Cache** : Redis si `REDIS_URL`, sinon LocMemCache (non partagé entre process — attention en prod).
 - **User model** : `authentication.CustomUser` (`AUTH_USER_MODEL`).
 

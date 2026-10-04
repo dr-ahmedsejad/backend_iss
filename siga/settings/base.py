@@ -420,8 +420,16 @@ CORS_ALLOW_HEADERS = [
 AXES_FAILURE_LIMIT        = config('AXES_FAILURE_LIMIT',    default=5,  cast=int)
 AXES_COOLOFF_TIME         = timedelta(minutes=config('AXES_COOLOFF_MINUTES', default=15, cast=int))
 AXES_LOCK_OUT_AT_FAILURE  = True
-AXES_RESET_ON_SUCCESS     = True
-AXES_LOCKOUT_PARAMETERS   = ['ip_address']         # bloquer par IP uniquement
+AXES_RESET_ON_SUCCESS     = True                   # sans effet en JWT : voir apps/authentication/tentatives.py
+# Le COUPLE compte + adresse : un étudiant qui se trompe ne bloque plus ses
+# camarades derrière la même adresse. L'adresse seule a son propre garde-fou,
+# LOGIN_ECHECS_PAR_IP, tous comptes confondus.
+AXES_LOCKOUT_PARAMETERS   = [['username', 'ip_address']]
+# L'adresse réelle (X-Real-IP posé par nginx), pas celle du conteneur nginx.
+AXES_CLIENT_IP_CALLABLE   = 'core.ip_client.adresse_client'
+# Réessayer pendant le blocage ne le prolonge pas.
+AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT = False
+LOGIN_ECHECS_PAR_IP       = config('LOGIN_ECHECS_PAR_IP', default=20, cast=int)
 AXES_HTTP_RESPONSE_CODE   = 429
 AXES_LOCKOUT_TEMPLATE     = None
 AXES_ENABLE_ADMIN         = True
