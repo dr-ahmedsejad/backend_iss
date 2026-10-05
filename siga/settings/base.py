@@ -326,6 +326,7 @@ MIRROR_WRITE_ALLOWLIST = [
     r'^/api/v1/saisie-en-ligne/$',                         # brouillon de notes (enseignant)
     r'^/api/v1/notifications/\d+/lire/$',                  # → notifications_lecture
     r'^/api/v1/notifications/tout-lire/$',
+    r'^/api/v1/notifications/appareils/$',                 # → notifications_appareil (push)
 ]
 
 # ── Ce que la publication ne transporte PAS ───────────────────────────────────
@@ -349,6 +350,8 @@ BOITE_DE_RECEPTION = [
     'saisie_note_en_ligne',              # notes saisies en ligne, en brouillon
     'portail_identifiant',               # mots de passe changés en ligne
     'notifications_lecture',             # notifications lues en ligne
+    'notifications_appareil',            # téléphones inscrits aux notifications push
+    'notifications_push_envoye',         # notifications déjà poussées (pas deux fois)
 ]
 
 # Tables PROPRES À CHAQUE INSTANCE : le miroir garde les siennes, le serveur
@@ -389,6 +392,13 @@ SYNC_SSH_USER     = config('SYNC_SSH_USER',    default='siga-publication')
 SYNC_SSH_KEY      = config('SYNC_SSH_KEY',     default='')
 SYNC_WORKDIR      = config('SYNC_WORKDIR',     default='') or None
 SYNC_TIMEOUT_S    = config('SYNC_TIMEOUT_S',   default=900, cast=int)
+
+# ── Notifications push (Firebase Cloud Messaging) ─────────────────────────────
+# Chemin de la clé JSON du compte de service du projet Firebase de l'app ISS
+# (`issgp-ab4ea`). SECRET : hors git, déposée à la main sur le serveur
+# (secrets/, monté sur /app/secrets). Vide ou illisible → aucun push ne part,
+# et rien d'autre ne change : les notifications restent dans la cloche.
+FIREBASE_CREDENTIALS = config('FIREBASE_CREDENTIALS', default='')
 BACKUP_OPENSSL_BIN   = config('BACKUP_OPENSSL_BIN',   default='openssl')
 # Retention des backups manuels chiffres (jours). Le cleanup tourne via cron.
 BACKUP_MANUAL_RETENTION_DAYS = config(

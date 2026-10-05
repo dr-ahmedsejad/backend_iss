@@ -53,3 +53,52 @@ class NotificationLecture(models.Model):
             models.UniqueConstraint(fields=['notification_id', 'user_id'],
                                     name='notifications_lecture_unique'),
         ]
+
+
+class AppareilPush(models.Model):
+    """Téléphone d'un utilisateur inscrit aux notifications push (jeton FCM).
+
+    L'application étudiante ISS (`mr.iss.etudiant`) s'inscrit ici à chaque
+    connexion — POST /notifications/appareils/. Jusqu'au 05/10/2026 l'adresse
+    n'existait pas côté ISS : l'app recevait un 404, aucun téléphone n'était
+    connu, aucun push ne pouvait partir.
+
+    Repris du SIGA-PRIVE. Écrit EN LIGNE (sur le miroir, l'app s'inscrit
+    auprès de lui) : boîte de réception, sans clé étrangère, exclue de la
+    publication. Un jeton = un appareil ; s'il change de compte, il le suit.
+    """
+    user_id    = models.BigIntegerField(db_index=True)
+    jeton      = models.CharField(max_length=512, unique=True)
+    plateforme = models.CharField(max_length=20, default='android')
+    langue     = models.CharField(max_length=5, default='fr')
+    cree_le    = models.DateTimeField(auto_now_add=True)
+    vu_le      = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'notifications_appareil'
+
+    def __str__(self):
+        return f'appareil {self.plateforme} de #{self.user_id}'
+
+
+class PushEnvoye(models.Model):
+    """Notification déjà traitée par `envoyer_push` (poussée, ou sans appareil).
+
+    Clé : (identifiant, date de création), et non l'identifiant seul : sur le
+    miroir, une notification créée en ligne puis effacée par la publication
+    peut voir son identifiant repris par une autre. Boîte de réception.
+    """
+    notification_id = models.BigIntegerField()
+    notification_le = models.DateTimeField()
+    nb_appareils    = models.PositiveIntegerField(default=0)
+    traite_le       = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'notifications_push_envoye'
+        constraints = [
+            models.UniqueConstraint(fields=['notification_id', 'notification_le'],
+                                    name='notifications_push_envoye_unique'),
+        ]
+
+    def __str__(self):
+        return f'push de la notification #{self.notification_id}'

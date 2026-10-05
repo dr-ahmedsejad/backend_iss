@@ -53,6 +53,8 @@ ECRITES_EN_LIGNE = [
     'saisie_en_ligne.SaisieNoteEnLigne',
     'authentication.IdentifiantPortail',
     'notifications.NotificationLecture',
+    'notifications.AppareilPush',
+    'notifications.PushEnvoye',
 ]
 
 

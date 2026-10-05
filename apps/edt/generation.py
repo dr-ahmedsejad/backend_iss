@@ -30,6 +30,7 @@ from django.db import transaction
 
 from apps.suivi.views import SuivieViewSet
 
+from .annonces import annoncer_semaine, groupes_generes
 from .services.archive import archiver_semaine
 from .services.planification import projeter_semaine
 
@@ -124,6 +125,10 @@ class SuivieAvecProjectionViewSet(SuivieViewSet):
                     annee, ts, numero, bilan['supprimees'], bilan['projetees'],
                     request.user.username)
 
+        # Les groupes qui avaient DÉJÀ un suivi pour cette semaine : seuls ceux
+        # que CETTE génération ajoute seront annoncés (voir plus bas).
+        avant = groupes_generes(annee, ts, numero) if (annee and ts and numero) else set()
+
         reponse = super().ajouter_suivie(request, *args, **kwargs)
 
         # Le message du socle annonce « EDT archive et vide ». C'etait exact,
@@ -158,5 +163,28 @@ class SuivieAvecProjectionViewSet(SuivieViewSet):
         # sélecteur de versions de l'écran « Historique ».
         if projete and reponse.status_code < 400:
             archiver_semaine(annee, ts, numero, departements=perimetre)
+
+        # Générer le suivi VALIDE l'emploi du temps de la semaine : provisoire
+        # jusque-là, c'est désormais celui que le portail et l'app étudiante
+        # affichent. On prévient les étudiants des groupes que cette génération
+        # vient d'ajouter — « validé », ou « modifié » si la semaine l'avait déjà
+        # été (supprimée puis régénérée). Voir apps/edt/annonces.py.
+        #
+        # Une annonce manquée ne doit JAMAIS faire échouer une génération : le
+        # suivi alimente le pointage et la paie. L'erreur est journalisée.
+        if annee and ts and numero and reponse.status_code < 400:
+            nouveaux = groupes_generes(annee, ts, numero) - avant
+            if perimetre is not None:
+                nouveaux &= {int(d) for d in perimetre}
+            if nouveaux:
+                try:
+                    bilan = annoncer_semaine(annee, ts, numero, nouveaux)
+                    n = bilan['valides'] + bilan['modifies']
+                    if n and isinstance(reponse.data, dict) and reponse.data.get('message'):
+                        reponse.data['message'] += (
+                            f" {n} étudiant{'s' if n > 1 else ''} "
+                            f"prévenu{'s' if n > 1 else ''}.")
+                except Exception:
+                    logger.exception("Annonce de l'emploi S%s %s non envoyée", numero, annee)
 
         return reponse

@@ -182,6 +182,10 @@ services:
       # /opt/siga/backups via bind-mount ci-dessous). Les scripts shell de
       # /siga/deploy/backup-scripts/ ecrivent dans le meme dossier cote host.
       BACKUP_BASE_DIR: /app/backups
+      # Notifications push vers l'app étudiante : clé du compte de service
+      # Firebase, déposée à la main dans ../secrets (monté ci-dessous). Absente
+      # → aucun push, rien d'autre ne change.
+      FIREBASE_CREDENTIALS: ${FIREBASE_CREDENTIALS:-/app/secrets/firebase-iss.json}
     volumes:
       # Bind-mount du dossier media local : les fichiers existants sont visibles
       # immediatement, et tout nouvel upload depuis SIGA apparait sur ton disque.

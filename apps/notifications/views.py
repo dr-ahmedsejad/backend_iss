@@ -7,7 +7,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 
 from core.mirror import est_miroir
 
-from .models import Notification, NotificationLecture
+from .models import AppareilPush, Notification, NotificationLecture
 from .serializers import NotificationSerializer
 
 
@@ -63,6 +63,29 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             notif.lue = True
             notif.save(update_fields=['lue'])
         return Response(NotificationSerializer(notif).data)
+
+    @action(detail=False, methods=['post', 'delete'], url_path='appareils')
+    def appareils(self, request):
+        """POST : inscrit le téléphone aux notifications push (jeton FCM).
+        DELETE : le désinscrit (déconnexion). Corps : {"jeton", "plateforme", "langue"}.
+
+        L'application étudiante appelle cette adresse à chaque connexion. Écrit
+        dans la boîte de réception (notifications_appareil) : autorisé sur le
+        miroir et jamais effacé par la publication."""
+        jeton = str(request.data.get('jeton') or '').strip()
+        if not jeton or len(jeton) > 512:
+            return Response({'detail': 'Jeton requis.'}, status=status.HTTP_400_BAD_REQUEST)
+        if request.method == 'DELETE':
+            AppareilPush.objects.filter(jeton=jeton, user_id=request.user.pk).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        plateforme = str(request.data.get('plateforme') or 'android')[:20]
+        langue = 'ar' if str(request.data.get('langue') or '').startswith('ar') else 'fr'
+        # Un jeton = un appareil : s'il passe à un autre compte, il le suit.
+        _, cree = AppareilPush.objects.update_or_create(
+            jeton=jeton, defaults={'user_id': request.user.pk, 'plateforme': plateforme,
+                                   'langue': langue})
+        return Response({'detail': 'Appareil inscrit.'},
+                        status=status.HTTP_201_CREATED if cree else status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'], url_path='tout-lire')
     def tout_lire(self, request):

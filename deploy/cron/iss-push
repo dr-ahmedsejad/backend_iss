@@ -1,0 +1,9 @@
+# ════════════════════════════════════════════════════════════════════
+# ISS — Notifications push vers l'application étudiante
+# À installer dans la crontab de l'utilisateur qui lance docker compose
+# (crontab -e). Toutes les 2 minutes : chaque nouvelle notification de la
+# cloche part vers le téléphone de son destinataire.
+# Sans clé Firebase (secrets/firebase-iss.json), la commande répond
+# « Push désactivé » et ne fait rien.
+# ════════════════════════════════════════════════════════════════════
+*/2 * * * * cd /opt/iss/backend_iss/deploy && docker compose exec -T backend python manage.py envoyer_push >> $HOME/logs/iss-push.log 2>&1

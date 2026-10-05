@@ -411,3 +411,40 @@ class EmploiArchive(models.Model):
     def __str__(self):
         return (f'{self.departement_nom} S{self.numero_semaine} v{self.version} — '
                 f'{self.jour_libelle} {self.creneau_libelle}')
+
+
+class AnnonceEmploi(models.Model):
+    """
+    L'emploi du temps d'une semaine, VALIDÉ pour un groupe et annoncé à ses
+    étudiants.
+
+    Tant que le suivi d'une semaine n'est pas généré, son emploi du temps est
+    provisoire ; la génération en fait le vrai — celui que le portail et
+    l'application étudiante affichent, puisqu'ils lisent le suivi. C'est donc
+    à la génération que les étudiants sont prévenus (apps/edt/annonces.py).
+
+    Cette table dit si la semaine l'a déjà été : la première génération
+    annonce « validé », une régénération après correction « modifié ».
+    """
+
+    annee_universitaire = models.CharField(max_length=9)
+    type_semestre       = models.CharField(max_length=1)
+    numero_semaine      = models.IntegerField()
+    departement = models.ForeignKey('departement.Departement',
+                                    on_delete=models.CASCADE,
+                                    related_name='annonces_emploi')
+    premiere_le = models.DateTimeField(auto_now_add=True)
+    derniere_le = models.DateTimeField(auto_now=True)
+    nb_annonces = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = 'edt_annonce_emploi'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['annee_universitaire', 'type_semestre', 'numero_semaine',
+                        'departement'],
+                name='uniq_edt_annonce_emploi'),
+        ]
+
+    def __str__(self):
+        return f'{self.departement} S{self.numero_semaine} ({self.nb_annonces} annonce(s))'
