@@ -914,7 +914,7 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
         }
 
     @staticmethod
-    def _make_pdf(html: str) -> bytes:
+    def _make_pdf(html: str, **options_sup) -> bytes:
         config = pdfkit.configuration(
             wkhtmltopdf=r'C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe'
         )
@@ -927,6 +927,7 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
             'margin-right':     '1.2cm',
             'encoding':         'UTF-8',
             'enable-local-file-access': '',
+            **options_sup,
         }
         return pdfkit.from_string(html, False, configuration=config, options=options)
 
@@ -1063,7 +1064,10 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
         })
         from core.telechargement import entete_piece_jointe
 
-        pdf      = self._make_pdf(html)
+        # Sans réduction automatique : wkhtmltopdf ramenait la page à 80 %, et
+        # les tailles du gabarit — écrites en points pour l'impression — en
+        # sortaient à 60 %. Le gabarit gère lui-même la place (`serree`).
+        pdf      = self._make_pdf(html, **{'disable-smart-shrinking': ''})
         filename = f"fiches-presence-S{semaine}-{annee}.pdf".replace(' ', '_')
         response = HttpResponse(pdf, content_type='application/pdf')
         response['Content-Disposition'] = entete_piece_jointe(filename)

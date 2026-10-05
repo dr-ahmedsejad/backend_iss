@@ -4,10 +4,18 @@
     <meta charset="UTF-8">
     <title>Fiches de présence — Semaine {{ numero_semaine }} — {{ annee_universitaire }}</title>
     <style>
+        /*
+          Fiche IMPRIMÉE, le plus souvent en noir et blanc, puis photocopiée.
+          Une imprimante N&B rend un gris par une trame de points, une
+          photocopieuse l'efface : la grille gris clair devenait pointillée
+          puis disparaissait, les fonds gris semaient des points sur les noms.
+          Ici tout est NOIR, sans fond, et les tailles sont en points :
+          le PDF est produit sans réduction automatique (voir la vue).
+        */
         @page { size: A4 portrait; margin: 1.2cm 1.4cm; }
         body {
             font-family: Arial, sans-serif;
-            font-size: 11px;
+            font-size: 10pt;
             color: #000;
             margin: 0;
             padding: 0;
@@ -19,78 +27,82 @@
         /* Titre centré */
         .fiche-title {
             text-align: center;
-            font-size: 14px;
+            font-size: 13pt;
             font-weight: bold;
-            margin: 10px 0 18px 0;
+            margin: 6pt 0 10pt 0;
         }
 
         /* Bloc info — table sans bordures */
         .info-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 10px;
+            margin-bottom: 4pt;
+            font-size: 10pt;
         }
         .info-table td {
-            padding: 4px 6px;
+            padding: 2pt 4pt;
             border: none;
             vertical-align: middle;
             white-space: nowrap;
         }
         .info-table .lbl {
             font-weight: bold;
-            width: 140px;
+            width: 110pt;
         }
-        .info-table .fill      { min-width: 200px; }
-        .info-table .fill-short { width: 50px; }
-        .info-table .fill-wide  { width: 100%; }
-        .info-table .right-lbl { font-weight: bold; text-align: right; padding-right: 8px; width: 80px; }
-        .info-table .right-val { font-weight: bold; font-size: 13px; }
+        .info-table .right-lbl { font-weight: bold; text-align: right; padding-right: 6pt; width: 60pt; }
+        .info-table .right-val { font-weight: bold; font-size: 11pt; }
 
         /* Séparateur */
-        hr.thin { border: none; border-top: 1px solid #bbb; margin: 8px 0; }
+        hr.thin { border: none; border-top: 0.75pt solid #000; margin: 5pt 0; }
 
-        /* Tableau étudiants */
+        /* Tableau étudiants : grille noire pleine, aucun fond */
         .etu-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 12px;
-            margin-top: 6px;
+            font-size: 10pt;
+            margin-top: 4pt;
         }
         .etu-table th {
-            background: #ececec;
-            border: 1px solid #999;
-            padding: 6px 8px;
+            border: 0.75pt solid #000;
+            border-bottom: 1.5pt solid #000;
+            padding: 4pt 5pt;
             text-align: center;
-            font-size: 10px;
+            font-size: 8.5pt;
+            font-weight: bold;
             text-transform: uppercase;
-            letter-spacing: 0.4px;
+            letter-spacing: 0.3pt;
         }
         .etu-table td {
-            border: 1px solid #bbb;
-            padding: 5px 8px;
+            border: 0.75pt solid #000;
+            padding: 0 5pt;
             vertical-align: middle;
-            height: 22px;
+            height: 18pt;
         }
-        tr:nth-child(even) { background: #fafafa; }
+        /* Groupe chargé : lignes plus basses pour tenir sur une page. */
+        .etu-table.serree td      { height: 15pt; }
+        .etu-table.tres-serree td { height: 12.5pt; font-size: 9pt; }
 
-        .col-mat  { width: 110px; text-align: center; }
-        .col-nom  { font-size: 12px; }
-        .col-abs  { width: 65px; text-align: center; }
+        .col-mat  { width: 70pt; text-align: center; }
+        .col-abs  { width: 62pt; text-align: center; }
 
         .mat-code {
             font-family: 'Courier New', monospace;
-            font-size: 12px;
+            font-size: 10pt;
             font-weight: bold;
-            letter-spacing: 0.5px;
-            color: #000;
+            letter-spacing: 0.3pt;
         }
+        /* Mentions « rattaché·e », « dette » : noires, en italique. */
+        .mention { font-size: 8pt; font-style: italic; }
+        .note    { font-size: 8pt; font-style: italic; margin: 2pt 0 0; }
 
         /* Signature */
-        .sig-block { margin-top: 18px; width: 38%; }
-        .sig-block p { font-size: 10px; color: #555; margin: 0 0 20px 0; }
-        .sig-line { border-bottom: 1px solid #888; }
+        .sig-block { margin-top: 12pt; width: 38%; }
+        .sig-block p { font-size: 9pt; margin: 0 0 22pt 0; }
+        .sig-line { border-bottom: 0.75pt solid #000; }
 
-        .entete-wrapper { margin-bottom: 6px; }
+        .vide { text-align: center; padding: 16pt 0; font-size: 10pt; font-style: italic; }
+
+        .entete-wrapper { margin-bottom: 4pt; }
     </style>
 </head>
 <body>
@@ -150,7 +162,9 @@
 
     <!-- Liste étudiants -->
     {% if fiche.etudiants or fiche.rattaches or fiche.dettes %}
-    <table class="etu-table">
+    {% with n1=fiche.etudiants|length n2=fiche.rattaches|length n3=fiche.dettes|length %}
+    {% with n12=n1|add:n2 %}{% with n=n12|add:n3 %}
+    <table class="etu-table{% if n > 30 %} tres-serree{% elif n > 24 %} serree{% endif %}">
         <thead>
             <tr>
                 <th class="col-mat">Matricule</th>
@@ -176,7 +190,7 @@
             <tr>
                 <td class="col-mat" style="text-align:center;"><span class="mat-code">{{ etu.matricule }}</span></td>
                 <td class="col-nom">{{ etu.nom }}
-                    <span style="font-size:9px; color:#555;">— rattaché·e · inscrit·e en {{ etu.filiere }}</span></td>
+                    <span class="mention">— rattaché·e · inscrit·e en {{ etu.filiere }}</span></td>
                 <td class="col-abs">&nbsp;</td>
             </tr>
             {% endfor %}
@@ -195,12 +209,13 @@
             <tr>
                 <td class="col-mat" style="text-align:center;"><span class="mat-code">{{ etu.matricule }}</span></td>
                 <td class="col-nom">{{ etu.nom }}
-                    <span style="font-size:9px; color:#555;">— dette · {{ etu.groupe }}</span></td>
+                    <span class="mention">— dette · {{ etu.groupe }}</span></td>
                 <td class="col-abs">&nbsp;</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+    {% endwith %}{% endwith %}{% endwith %}
 
     {% comment %}
       Inscriptions pédagogiques non saisies pour cet élément : la liste est
@@ -208,7 +223,7 @@
       passer pour une liste contrôlée.
     {% endcomment %}
     {% if fiche.liste_non_verifiee %}
-    <p style="font-size:9px; color:#666; font-style:italic; margin:2px 0 0;">
+    <p class="note">
         Liste du groupe entier : les inscriptions à cet élément n'ont pas été saisies.
     </p>
     {% endif %}
@@ -219,7 +234,7 @@
     </div>
 
     {% else %}
-    <p style="text-align:center; color:#999; padding:20px 0; font-size:11px;">
+    <p class="vide">
         Aucun étudiant inscrit dans ce groupe.
     </p>
     {% endif %}
