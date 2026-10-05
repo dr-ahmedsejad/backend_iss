@@ -45,7 +45,8 @@ class TestNoirSurBlanc:
 
 
 def fiche(n):
-    return {
+    from apps.absence.liste_appel import lignes_de_fiche
+    f = {
         'dep_nom': 'G1', 'groupe_libelle': 'L1 G1', 'filiere': 'Statistique',
         'date_seance': None, 'creneau': '08h00 à 09h30', 'type_seance': 'CM',
         'is_surveillance': False, 'em_intitule': 'Élément', 'prof_nom': 'Prof',
@@ -54,6 +55,8 @@ def fiche(n):
         'dettes': [{'matricule': '999', 'nom': 'Dette', 'groupe': 'G2'}],
         'liste_non_verifiee': False,
     }
+    f['lignes'] = lignes_de_fiche(f['etudiants'], f['rattaches'], f['dettes'])
+    return f
 
 
 def rendre(*fiches):
@@ -81,6 +84,42 @@ class TestPlace:
         html = rendre(fiche(20), fiche(33))
         assert html.count('class="etu-table"') == 1
         assert html.count('class="etu-table tres-serree"') == 1
+
+
+class TestOrdreDesMatricules:
+    """Le 05/10/2026, la fiche de SEA L3 G1 lisait « …255045, 24603, 24616… » :
+    rattachés et dettes étaient rejetés en fin de liste. On fait l'appel dans
+    l'ordre des matricules : une seule liste, croissante."""
+
+    def test_en_nombre_et_non_en_lettres(self):
+        from apps.absence.liste_appel import ordre_matricule
+        assert sorted(['10000', '9999', '255004', '24603'], key=ordre_matricule) ==             ['9999', '10000', '24603', '255004']
+
+    def test_un_matricule_non_numerique_passe_apres(self):
+        from apps.absence.liste_appel import ordre_matricule
+        assert sorted(['B12', '24603', 'A7', ''], key=ordre_matricule) == ['24603', '', 'A7', 'B12']
+
+    def test_rattaches_et_dettes_prennent_leur_place(self):
+        from apps.absence.liste_appel import lignes_de_fiche
+        lignes = lignes_de_fiche(
+            [{'matricule': '24622', 'nom': 'A'}, {'matricule': '255004', 'nom': 'B'}],
+            [{'matricule': '24603', 'nom': 'R', 'filiere': 'SEA'}],
+            [{'matricule': '24616', 'nom': 'D', 'groupe': 'G2'}])
+        assert [(l['matricule'], l['statut']) for l in lignes] == [
+            ('24603', 'rattache'), ('24616', 'dette'), ('24622', ''), ('255004', '')]
+
+    def test_le_pdf_imprime_dans_cet_ordre_avec_les_mentions(self, db):
+        from apps.absence.liste_appel import lignes_de_fiche
+        f = fiche(3)
+        f['etudiants'] = [{'matricule': '24622', 'nom': 'Alpha'}, {'matricule': '255004', 'nom': 'Beta'}]
+        f['rattaches'] = [{'matricule': '24603', 'nom': 'Rho', 'filiere': 'SEA'}]
+        f['dettes'] = [{'matricule': '24616', 'nom': 'Delta', 'groupe': 'L2 G2'}]
+        f['lignes'] = lignes_de_fiche(f['etudiants'], f['rattaches'], f['dettes'])
+        html = rendre(f)
+        assert re.findall(r'class="mat-code">(\w+)<', html) == ['24603', '24616', '24622', '255004']
+        corps = html[html.index('<tbody>'):]
+        assert corps.index('Rho') < corps.index('rattaché·e · inscrit·e en SEA') < corps.index('Delta')
+        assert corps.index('Delta') < corps.index('dette · L2 G2') < corps.index('Alpha')
 
 
 class TestSansReduction:

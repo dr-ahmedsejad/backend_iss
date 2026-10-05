@@ -211,6 +211,8 @@ class TestGabarit:
             'rattaches': [{'matricule': '003', 'nom': 'Trois', 'genre': 'F', 'filiere': 'SEA'}],
             'liste_non_verifiee': True,
         }
+        from apps.absence.liste_appel import lignes_de_fiche
+        fiche['lignes'] = lignes_de_fiche(fiche['etudiants'], fiche['rattaches'], fiche['dettes'])
         # Le même contexte d'institution que la vue (logo, noms) : sans lui, le
         # gabarit échoue avant d'avoir rendu la moindre fiche.
         from core.pdf_utils import get_institution_context

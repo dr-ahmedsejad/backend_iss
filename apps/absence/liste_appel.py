@@ -150,3 +150,25 @@ def liste_appel(departement_id, em_id, annee) -> dict:
     return {'etudiants': etudiants,
             'rattaches': _rattaches(departement_id, annee, [e.pk for e in etudiants]),
             'dettes': dettes, 'source': SOURCE_INSCRIPTIONS}
+
+
+# ── L'ordre de la fiche ───────────────────────────────────────────────────────
+
+def ordre_matricule(matricule):
+    """Clé de l'ordre CROISSANT des matricules, en NOMBRE : « 9999 » avant
+    « 10000 », ce que l'ordre alphabétique inverse. Un matricule non numérique
+    passe après les autres, par ordre alphabétique."""
+    m = (matricule or '').strip()
+    return (0, int(m), '') if m.isdigit() else (1, 0, m)
+
+
+def lignes_de_fiche(etudiants, rattaches, dettes):
+    """UNE liste, triée par matricule croissant — celle qu'on lit en faisant
+    l'appel. Rattachés et dettes y prennent leur place, marqués par `statut`
+    ('rattache' / 'dette'), au lieu d'être rejetés en fin de liste : le
+    05/10/2026, la fiche de SEA L3 G1 lisait « …255045, 24603, 24616… ».
+    Reçoit et rend des dicts (ceux que la vue prépare)."""
+    lignes = ([{**e, 'statut': ''} for e in etudiants]
+              + [{**e, 'statut': 'rattache'} for e in rattaches]
+              + [{**e, 'statut': 'dette'} for e in dettes])
+    return sorted(lignes, key=lambda l: ordre_matricule(l.get('matricule')))

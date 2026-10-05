@@ -986,7 +986,7 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
         # La liste se calcule par SÉANCE (groupe ET élément), non par groupe :
         # un étudiant qui a déjà validé l'élément n'a rien à y faire, et un
         # étudiant d'un autre groupe qui le suit EN DETTE doit y figurer.
-        from apps.absence.liste_appel import SOURCE_GROUPE, liste_appel
+        from apps.absence.liste_appel import SOURCE_GROUPE, liste_appel, lignes_de_fiche
         from apps.absence.libelles import libelle_groupe
 
         def _resume(e, avec_groupe=False):
@@ -1008,6 +1008,9 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
                 'dettes':    [_resume(e, avec_groupe=True) for e in r['dettes']],
                 'liste_non_verifiee': r['source'] == SOURCE_GROUPE,
             }
+            # Ce que la fiche imprime : les trois, en UNE liste par matricule.
+            listes[cle]['lignes'] = lignes_de_fiche(
+                listes[cle]['etudiants'], listes[cle]['rattaches'], listes[cle]['dettes'])
 
         # Construire les fiches
         from apps.departement.models import Departement as DepModel
@@ -1053,7 +1056,7 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
                 'salle_nom':    s.salle.nom if s.salle_id else '—',
                 **listes.get((s.departement_id, s.em_id),
                              {'etudiants': [], 'rattaches': [], 'dettes': [],
-                              'liste_non_verifiee': True}),
+                              'lignes': [], 'liste_non_verifiee': True}),
             })
 
         html = render_to_string('absence/fiches_presence.html', {

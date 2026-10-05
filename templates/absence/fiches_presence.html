@@ -161,9 +161,8 @@
     <hr class="thin">
 
     <!-- Liste étudiants -->
-    {% if fiche.etudiants or fiche.rattaches or fiche.dettes %}
-    {% with n1=fiche.etudiants|length n2=fiche.rattaches|length n3=fiche.dettes|length %}
-    {% with n12=n1|add:n2 %}{% with n=n12|add:n3 %}
+    {% if fiche.lignes %}
+    {% with n=fiche.lignes|length %}
     <table class="etu-table{% if n > 30 %} tres-serree{% elif n > 24 %} serree{% endif %}">
         <thead>
             <tr>
@@ -173,28 +172,14 @@
             </tr>
         </thead>
         <tbody>
-            {% for etu in fiche.etudiants %}
-            <tr>
-                <td class="col-mat" style="text-align:center;"><span class="mat-code">{{ etu.matricule }}</span></td>
-                <td class="col-nom">{{ etu.nom }}</td>
-                <td class="col-abs">&nbsp;</td>
-            </tr>
-            {% endfor %}
             {% comment %}
+              UNE liste, par matricule croissant (`lignes_de_fiche`).
+
               Les RATTACHÉS : membres du groupe, inscrits dans une autre filière
               et placés ici pour la planification. Ils suivent ces cours sans
               être inscrits à l'élément ; leur filière est écrite pour que nul
               ne les prenne pour une erreur de liste.
-            {% endcomment %}
-            {% for etu in fiche.rattaches %}
-            <tr>
-                <td class="col-mat" style="text-align:center;"><span class="mat-code">{{ etu.matricule }}</span></td>
-                <td class="col-nom">{{ etu.nom }}
-                    <span class="mention">— rattaché·e · inscrit·e en {{ etu.filiere }}</span></td>
-                <td class="col-abs">&nbsp;</td>
-            </tr>
-            {% endfor %}
-            {% comment %}
+
               Les DETTES : inscrits à cet élément, mais d'un autre groupe — qui
               ne l'enseigne pas. Sans eux, ils ne figuraient sur aucune fiche et
               ne pouvaient jamais être pointés. Leur groupe est écrit : un nom
@@ -205,17 +190,18 @@
               que sur UNE ligne. Sur plusieurs, Django l'imprime tel quel — ce
               texte est sorti dans le PDF le 02/10/2026.
             {% endcomment %}
-            {% for etu in fiche.dettes %}
+            {% for etu in fiche.lignes %}
             <tr>
                 <td class="col-mat" style="text-align:center;"><span class="mat-code">{{ etu.matricule }}</span></td>
-                <td class="col-nom">{{ etu.nom }}
-                    <span class="mention">— dette · {{ etu.groupe }}</span></td>
+                <td class="col-nom">{{ etu.nom }}{% if etu.statut == 'rattache' %}
+                    <span class="mention">— rattaché·e · inscrit·e en {{ etu.filiere }}</span>{% elif etu.statut == 'dette' %}
+                    <span class="mention">— dette · {{ etu.groupe }}</span>{% endif %}</td>
                 <td class="col-abs">&nbsp;</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
-    {% endwith %}{% endwith %}{% endwith %}
+    {% endwith %}
 
     {% comment %}
       Inscriptions pédagogiques non saisies pour cet élément : la liste est
