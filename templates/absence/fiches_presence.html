@@ -14,8 +14,11 @@
         */
         @page { size: A4 portrait; margin: 1.2cm 1.4cm; }
         body {
-            font-family: Arial, sans-serif;
-            font-size: 10pt;
+            /* Calibri, plus lisible ici (demande du 05/10/2026). Elle n'existe
+               pas sur le serveur Linux : Carlito, son équivalent libre aux
+               mêmes dimensions, l'y remplace (image Docker). */
+            font-family: Calibri, Carlito, Arial, sans-serif;
+            font-size: 11pt;
             color: #000;
             margin: 0;
             padding: 0;
@@ -27,9 +30,9 @@
         /* Titre centré */
         .fiche-title {
             text-align: center;
-            font-size: 13pt;
+            font-size: 14pt;
             font-weight: bold;
-            margin: 6pt 0 10pt 0;
+            margin: 4pt 0 6pt 0;
         }
 
         /* Bloc info — table sans bordures */
@@ -37,10 +40,10 @@
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 4pt;
-            font-size: 10pt;
+            font-size: 11pt;
         }
         .info-table td {
-            padding: 2pt 4pt;
+            padding: 1pt 4pt;
             border: none;
             vertical-align: middle;
             white-space: nowrap;
@@ -50,7 +53,7 @@
             width: 110pt;
         }
         .info-table .right-lbl { font-weight: bold; text-align: right; padding-right: 6pt; width: 60pt; }
-        .info-table .right-val { font-weight: bold; font-size: 11pt; }
+        .info-table .right-val { font-weight: bold; font-size: 12pt; }
 
         /* Séparateur */
         hr.thin { border: none; border-top: 0.75pt solid #000; margin: 5pt 0; }
@@ -59,7 +62,7 @@
         .etu-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 10pt;
+            font-size: 11pt;
             margin-top: 4pt;
         }
         .etu-table th {
@@ -67,7 +70,7 @@
             border-bottom: 1.5pt solid #000;
             padding: 4pt 5pt;
             text-align: center;
-            font-size: 8.5pt;
+            font-size: 9pt;
             font-weight: bold;
             text-transform: uppercase;
             letter-spacing: 0.3pt;
@@ -80,29 +83,45 @@
         }
         /* Groupe chargé : lignes plus basses pour tenir sur une page. */
         .etu-table.serree td      { height: 15pt; }
-        .etu-table.tres-serree td { height: 12.5pt; font-size: 9pt; }
+        .etu-table.tres-serree td { height: 12.5pt; font-size: 10pt; }
+
+        /* Au-delà de 32 (un CM qui réunit plusieurs groupes) : deux colonnes,
+           lues de haut en bas, la gauche puis la droite. */
+        .deux-colonnes td, .deux-colonnes .mat-code { font-size: 10pt; }
+        .deux-colonnes td { height: 14pt; padding: 0 3pt; }
+        .deux-colonnes th { font-size: 8pt; padding: 3pt 2pt; }
+        .deux-colonnes .col-mat { width: 44pt; }
+        .deux-colonnes .col-abs { width: 26pt; }
+        .deux-colonnes .mention { font-size: 8pt; }
+        .etu-table .sep, .etu-table th.sep { width: 8pt; border: none; }
 
         .col-mat  { width: 70pt; text-align: center; }
         .col-abs  { width: 62pt; text-align: center; }
 
         .mat-code {
-            font-family: 'Courier New', monospace;
-            font-size: 10pt;
+            font-family: Calibri, Carlito, Arial, sans-serif;
+            font-size: 11pt;
             font-weight: bold;
             letter-spacing: 0.3pt;
         }
-        /* Mentions « rattaché·e », « dette » : noires, en italique. */
-        .mention { font-size: 8pt; font-style: italic; }
-        .note    { font-size: 8pt; font-style: italic; margin: 2pt 0 0; }
+        /* Mention « dette » : noire, en italique. */
+        .mention { font-size: 9pt; font-style: italic; }
+        .note    { font-size: 9pt; font-style: italic; margin: 2pt 0 0; }
 
         /* Signature */
-        .sig-block { margin-top: 12pt; width: 38%; }
-        .sig-block p { font-size: 9pt; margin: 0 0 22pt 0; }
+        .sig-block { margin-top: 8pt; width: 38%; }
+        .sig-block p { font-size: 10pt; margin: 0 0 18pt 0; }
         .sig-line { border-bottom: 0.75pt solid #000; }
 
-        .vide { text-align: center; padding: 16pt 0; font-size: 10pt; font-style: italic; }
+        .vide { text-align: center; padding: 16pt 0; font-size: 11pt; font-style: italic; }
 
-        .entete-wrapper { margin-bottom: 4pt; }
+        /* L'en-tête commun, plus sobre ici : la place va à la liste. */
+        .entete-wrapper { margin-bottom: 2pt; }
+        .entete-wrapper td { font-size: 13pt !important; line-height: 1.2 !important; }
+        .entete-wrapper img { width: 48pt; height: 48pt; }
+        /* Le nom arabe : Carlito (serveur) n'a pas l'arabe, Arial si. */
+        .entete-wrapper td:last-child { font-family: Arial, sans-serif; }
+        .entete-wrapper hr { margin: 3pt 0; }
     </style>
 </head>
 <body>
@@ -147,7 +166,7 @@
             <td colspan="4">{{ fiche.em_intitule }}</td>
         </tr>
         <tr>
-            <td class="lbl">Professeur :</td>
+            <td class="lbl">Enseignant :</td>
             <td colspan="4">{{ fiche.prof_nom }}</td>
         </tr>
         {% if not fiche.is_surveillance %}
@@ -162,6 +181,26 @@
 
     <!-- Liste étudiants -->
     {% if fiche.lignes %}
+    {% if fiche.paires %}
+    <table class="etu-table deux-colonnes">
+        <thead>
+            <tr>
+                <th class="col-mat">Matricule</th><th class="col-nom">Nom et Prénom</th><th class="col-abs">A si absent</th>
+                <th class="sep"></th>
+                <th class="col-mat">Matricule</th><th class="col-nom">Nom et Prénom</th><th class="col-abs">A si absent</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for gauche, droite in fiche.paires %}
+            <tr>
+                {% include 'absence/_ligne_fiche.html' with etu=gauche %}
+                <td class="sep"></td>
+                {% if droite %}{% include 'absence/_ligne_fiche.html' with etu=droite %}{% else %}<td></td><td></td><td></td>{% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
     {% with n=fiche.lignes|length %}
     <table class="etu-table{% if n > 30 %} tres-serree{% elif n > 24 %} serree{% endif %}">
         <thead>
@@ -191,17 +230,12 @@
               texte est sorti dans le PDF le 02/10/2026.
             {% endcomment %}
             {% for etu in fiche.lignes %}
-            <tr>
-                <td class="col-mat" style="text-align:center;"><span class="mat-code">{{ etu.matricule }}</span></td>
-                <td class="col-nom">{{ etu.nom }}{% if etu.statut == 'rattache' %}
-                    <span class="mention">— rattaché·e · inscrit·e en {{ etu.filiere }}</span>{% elif etu.statut == 'dette' %}
-                    <span class="mention">— dette · {{ etu.groupe }}</span>{% endif %}</td>
-                <td class="col-abs">&nbsp;</td>
-            </tr>
+            <tr>{% include 'absence/_ligne_fiche.html' %}</tr>
             {% endfor %}
         </tbody>
     </table>
     {% endwith %}
+    {% endif %}
 
     {% comment %}
       Inscriptions pédagogiques non saisies pour cet élément : la liste est
@@ -215,7 +249,7 @@
     {% endif %}
 
     <div class="sig-block">
-        <p>{% if fiche.is_surveillance %}Nom et Signature du surveillant{% else %}Signature du professeur{% endif %}</p>
+        <p>{% if fiche.is_surveillance %}Nom et Signature du surveillant{% else %}Signature de l'enseignant{% endif %}</p>
         <div class="sig-line"></div>
     </div>
 

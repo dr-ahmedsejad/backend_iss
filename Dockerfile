@@ -11,6 +11,10 @@ FROM python:3.11-slim-bookworm
 #   Courier, etc. Les templates PDF utilisent `font-family: Arial` → meme rendu
 #   qu'en local Windows. Arial inclut deja les glyphes arabes (depuis Win 7).
 #   Necessite contrib activee + acceptation EULA via debconf.
+#
+# fonts-crosextra-carlito : Carlito, equivalent libre de Calibri aux memes
+#   dimensions (Calibri n'est pas redistribuable). Les fiches de presence
+#   demandent `Calibri, Carlito` : Calibri en local Windows, Carlito ici.
 RUN echo "deb http://deb.debian.org/debian bookworm contrib non-free non-free-firmware" > /etc/apt/sources.list.d/contrib.list \
  && apt-get update \
  && echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" \
@@ -27,7 +31,7 @@ RUN echo "deb http://deb.debian.org/debian bookworm contrib non-free non-free-fi
     libssl3 \
     fonts-dejavu \
     fonts-liberation \
-    ttf-mscorefonts-installer \
+    ttf-mscorefonts-installer     fonts-crosextra-carlito \
     default-libmysqlclient-dev \
     default-mysql-client \
     gcc \
@@ -41,7 +45,7 @@ RUN echo "deb http://deb.debian.org/debian bookworm contrib non-free non-free-fi
  && rm -f /tmp/wkhtmltox.deb \
  && rm -rf /var/lib/apt/lists/* \
  && wkhtmltopdf --version \
- && fc-match "Arial"
+ && fc-match "Arial"  && fc-match "Carlito" | grep -i carlito
 
 # ─── Hack zero-modif-code ──────────────────────────────────────
 # Le code Python utilise un chemin Windows hardcode :

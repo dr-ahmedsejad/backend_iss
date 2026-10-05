@@ -946,118 +946,12 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
         if not annee or not semaine:
             return HttpResponse('annee_universitaire et numero_semaine requis.', status=400)
 
-        from apps.suivi.models import Suivie
-        from apps.parametres.models import Seance
-        from collections import defaultdict
+        inst_ctx, _ = self._build_pdf_context()
 
-        inst_ctx, seance_map = self._build_pdf_context()
-
-        # Charger les séances de la semaine
-        qs = (
-            Suivie.objects
-            .filter(annee_universitaire=annee, numero_semaine=int(semaine))
-            .select_related('prof', 'em', 'salle', 'creneau_fk', 'departement', 'jour_fk', 'type_seance_fk')
-            .order_by('jour_fk__jour', 'creneau_fk__creneau')
-        )
-        if dep_id:
-            qs = qs.filter(departement_id=dep_id)
-
-        # Déduplication et résolution des labels (Phase 5 : FK uniquement)
-        jours_order = {'Lundi': 1, 'Mardi': 2, 'Mercredi': 3, 'Jeudi': 4, 'Vendredi': 5, 'Samedi': 6}
-        def _jour(x):    return x.jour_fk.jour       if x.jour_fk_id    and x.jour_fk    else ''
-        def _creneau(x): return x.creneau_fk.creneau if x.creneau_fk_id and x.creneau_fk else ''
-        def _type(x):    return x.type_seance_fk.type_seance if x.type_seance_fk_id and x.type_seance_fk else ''
-
-        seen = set()
-        suivies_unique = []
-        for s in sorted(qs, key=lambda x: (jours_order.get(_jour(x), 9), _creneau(x))):
-            # Exclure les séances sans type de séance OU sans EM (lignes
-            # incomplètes : Sport, Instruction militaire, lignes vides) :
-            # pas de fiche de présence pour ces séances.
-            if not _type(s) or not s.em_id:
-                continue
-            key = f"{_jour(s)}|{_creneau(s)}|{_type(s)}|{getattr(s, 'departement_id', '')}"
-            if key in seen:
-                continue
-            seen.add(key)
-            suivies_unique.append(s)
-
-        # Qui doit figurer sur chaque fiche — voir `apps.absence.liste_appel`.
-        # La liste se calcule par SÉANCE (groupe ET élément), non par groupe :
-        # un étudiant qui a déjà validé l'élément n'a rien à y faire, et un
-        # étudiant d'un autre groupe qui le suit EN DETTE doit y figurer.
-        from apps.absence.liste_appel import SOURCE_GROUPE, liste_appel, lignes_de_fiche
-        from apps.absence.libelles import libelle_groupe
-
-        def _resume(e, avec_groupe=False):
-            d = {'matricule': e.matricule, 'nom': e.nom, 'genre': e.genre}
-            if avec_groupe:
-                d['groupe'] = e.departement.nom if e.departement_id else ''
-            return d
-
-        listes: dict = {}
-        for s in suivies_unique:
-            cle = (s.departement_id, s.em_id)
-            if cle in listes or not s.departement_id:
-                continue
-            r = liste_appel(s.departement_id, s.em_id, annee)
-            listes[cle] = {
-                'etudiants': [_resume(e) for e in r['etudiants']],
-                'rattaches': [{**_resume(e), 'filiere': e.filiere_inscription}
-                              for e in r['rattaches']],
-                'dettes':    [_resume(e, avec_groupe=True) for e in r['dettes']],
-                'liste_non_verifiee': r['source'] == SOURCE_GROUPE,
-            }
-            # Ce que la fiche imprime : les trois, en UNE liste par matricule.
-            listes[cle]['lignes'] = lignes_de_fiche(
-                listes[cle]['etudiants'], listes[cle]['rattaches'], listes[cle]['dettes'])
-
-        # Construire les fiches
-        from apps.departement.models import Departement as DepModel
-        dep_cache: dict = {}
-
-        def get_dep_info(dep_id_val):
-            if dep_id_val not in dep_cache:
-                try:
-                    d = DepModel.objects.select_related('niveau', 'filiere').get(pk=dep_id_val)
-                    dep_cache[dep_id_val] = {
-                        'nom':     d.nom,
-                        'niveau':  d.niveau.niveau if d.niveau_id else '',
-                        'filiere': d.filiere.intitule_fr if d.filiere_id else '',
-                    }
-                except Exception:
-                    dep_cache[dep_id_val] = {'nom': str(dep_id_val), 'niveau': '', 'filiere': ''}
-            return dep_cache[dep_id_val]
-
-        fiches = []
-        for s in suivies_unique:
-            type_label = _type(s) or '—'
-            raw_creneau = _creneau(s) or '—'
-            creneau = raw_creneau.replace('-', ' à ') if raw_creneau and raw_creneau != '—' else '—'
-            dep_info = get_dep_info(s.departement_id) if s.departement_id else {'nom': '—', 'niveau': '', 'filiere': ''}
-            fiches.append({
-                'dep_nom':      dep_info['nom'],
-                # « L1 G1 » et non « G1 » : trois groupes s'appellent « G1 »
-                # cette année. Voir `apps/absence/libelles.py`.
-                'groupe_libelle': libelle_groupe(dep_info['nom'], dep_info['niveau']),
-                'niveau':       dep_info['niveau'],
-                'filiere':      dep_info['filiere'],
-                'date_seance':  s.date_suivie,
-                'jour':         _jour(s) or '—',
-                'creneau':      creneau,
-                'type_seance':  type_label,
-                # DS / ER / EF = examen/surveillance → fiche signée par le
-                # surveillant (pas le professeur) et sans « Objet du cours ».
-                'is_surveillance': type_label in ('DS', 'ER', 'EF'),
-                'numero_semaine': s.numero_semaine,
-                'em_code':      s.em.code if s.em_id and hasattr(s.em, 'code') else '',
-                'em_intitule':  s.em.intitule if s.em_id else '—',
-                'prof_nom':     s.prof.nom if s.prof_id else '—',
-                'salle_nom':    s.salle.nom if s.salle_id else '—',
-                **listes.get((s.departement_id, s.em_id),
-                             {'etudiants': [], 'rattaches': [], 'dettes': [],
-                              'lignes': [], 'liste_non_verifiee': True}),
-            })
+        # Une fiche par séance et par groupe, sauf le CM : une seule fiche pour
+        # les groupes réunis. Même calcul que l'écran — `apps/absence/fiches.py`.
+        from apps.absence.fiches import fiches_de_la_semaine
+        fiches = fiches_de_la_semaine(annee, semaine, dep_id or None)
 
         html = render_to_string('absence/fiches_presence.html', {
             'fiches':             fiches,
@@ -1075,6 +969,25 @@ class PresenceViewSet(AuditMixin, viewsets.ModelViewSet):
         response = HttpResponse(pdf, content_type='application/pdf')
         response['Content-Disposition'] = entete_piece_jointe(filename)
         return response
+
+    # ── GET /api/v1/absences/presences/fiches/ ────────────────────────────
+    @action(detail=False, methods=['get'], url_path='fiches')
+    def fiches_action(self, request):
+        """Les fiches de la semaine, telles que le PDF les imprime.
+
+        Params : annee_universitaire, numero_semaine, departement (opt).
+        L'écran lisait les séances puis la liste de chaque groupe, et
+        reconstituait les fiches lui-même : il aurait fallu y refaire la
+        réunion des groupes d'un CM. Il lit désormais le même calcul.
+        """
+        annee   = request.query_params.get('annee_universitaire')
+        semaine = request.query_params.get('numero_semaine')
+        if not annee or not semaine:
+            return Response({'detail': 'annee_universitaire et numero_semaine requis.'},
+                            status=400)
+        from apps.absence.fiches import fiches_de_la_semaine
+        return Response(fiches_de_la_semaine(
+            annee, semaine, request.query_params.get('departement') or None))
 
     # ── GET /api/v1/absences/presences/liste-appel/ ───────────────────────
     @action(detail=False, methods=['get'], url_path='liste-appel')

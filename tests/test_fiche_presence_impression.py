@@ -44,6 +44,27 @@ class TestNoirSurBlanc:
             assert epaisseur >= 0.75, t
 
 
+class TestPolice:
+    """Calibri, demandée le 05/10/2026. Elle n'existe pas sur le serveur Linux :
+    sans Carlito, wkhtmltopdf y prendrait une police de repli quelconque."""
+
+    def test_calibri_puis_carlito_partout(self):
+        """Partout, sauf le nom ARABE de l'en-tête : Carlito n'a pas l'arabe,
+        il reste en Arial, comme avant."""
+        source = GABARIT.read_text(encoding='utf-8')
+        regles = re.findall(r'([^{}]+)\{[^{}]*font-family\s*:\s*([^;]+);', source)
+        assert regles
+        for selecteur, police in regles:
+            if selecteur.strip().endswith('.entete-wrapper td:last-child'):
+                assert police.strip().startswith('Arial'), police
+            else:
+                assert police.strip().startswith('Calibri, Carlito'), (selecteur, police)
+
+    def test_l_image_du_serveur_installe_carlito(self):
+        dockerfile = (Path(settings.BASE_DIR) / 'Dockerfile').read_text(encoding='utf-8')
+        assert 'fonts-crosextra-carlito' in dockerfile
+
+
 def fiche(n):
     from apps.absence.liste_appel import lignes_de_fiche
     f = {
@@ -56,6 +77,8 @@ def fiche(n):
         'liste_non_verifiee': False,
     }
     f['lignes'] = lignes_de_fiche(f['etudiants'], f['rattaches'], f['dettes'])
+    from apps.absence.liste_appel import colonnes_de_fiche
+    f['paires'] = colonnes_de_fiche(f['lignes'])
     return f
 
 
@@ -68,9 +91,9 @@ def rendre(*fiches):
 
 class TestPlace:
     """Sans réduction automatique, c'est le gabarit qui fait tenir un groupe
-    chargé sur une page : lignes plus basses au-delà de 24, puis de 30.
-    Mesuré : 36 lignes tiennent sur une page A4 (le plus grand groupe réel en
-    compte 27)."""
+    chargé sur une page : lignes plus basses au-delà de 24, puis de 30, puis
+    deux colonnes au-delà de 32. Mesuré en Calibri 11 pt : 35 lignes tiennent
+    sur une colonne."""
 
     @pytest.mark.parametrize('n, classe', [
         (20, 'etu-table"'), (24, 'etu-table"'),
@@ -81,9 +104,39 @@ class TestPlace:
         assert 'class="%s' % classe in rendre(fiche(n))
 
     def test_chaque_fiche_a_sa_propre_densite(self, db):
-        html = rendre(fiche(20), fiche(33))
+        html = rendre(fiche(20), fiche(31))
         assert html.count('class="etu-table"') == 1
         assert html.count('class="etu-table tres-serree"') == 1
+
+
+class TestDeuxColonnes:
+    """Au-delà de 32 — un CM réunit 40 à 47 étudiants — une colonne ne tenait
+    sur une page qu'avec des lignes trop basses. Deux colonnes, lues de haut
+    en bas : la gauche, puis la droite. Mesuré : 64 lignes tiennent sur une page."""
+
+    def test_sous_le_seuil_une_seule_colonne(self):
+        from apps.absence.liste_appel import colonnes_de_fiche
+        assert colonnes_de_fiche([{'matricule': str(i)} for i in range(32)]) is None
+
+    def test_au_dela_la_gauche_puis_la_droite(self):
+        from apps.absence.liste_appel import colonnes_de_fiche
+        paires = colonnes_de_fiche([{'matricule': str(i)} for i in range(37)])
+        assert len(paires) == 19
+        assert [g['matricule'] for g, _ in paires] == [str(i) for i in range(19)]
+        assert [d['matricule'] for _, d in paires[:-1]] == [str(i) for i in range(19, 37)]
+        assert paires[-1][1] is None
+
+    def test_le_pdf_imprime_deux_colonnes_dans_l_ordre(self, db):
+        html = rendre(fiche(42))
+        assert 'class="etu-table deux-colonnes"' in html
+        lus = re.findall(r'class="mat-code">(\w+)<', html)
+        # Rangée par rangée : gauche, droite. Reconstitué colonne par colonne,
+        # c'est l'ordre croissant.
+        assert lus[0::2] + lus[1::2] == [l['matricule'] for l in fiche(42)['lignes']]
+
+    def test_une_fiche_courte_reste_sur_une_colonne(self, db):
+        assert 'deux-colonnes"' not in rendre(fiche(32))
+        assert 'deux-colonnes"' in rendre(fiche(33))
 
 
 class TestOrdreDesMatricules:
@@ -118,7 +171,9 @@ class TestOrdreDesMatricules:
         html = rendre(f)
         assert re.findall(r'class="mat-code">(\w+)<', html) == ['24603', '24616', '24622', '255004']
         corps = html[html.index('<tbody>'):]
-        assert corps.index('Rho') < corps.index('rattaché·e · inscrit·e en SEA') < corps.index('Delta')
+        # Le rattaché prend sa place SANS mention (demande du 05/10/2026).
+        assert corps.index('Rho') < corps.index('Delta')
+        assert 'rattaché' not in corps
         assert corps.index('Delta') < corps.index('dette · L2 G2') < corps.index('Alpha')
 
 

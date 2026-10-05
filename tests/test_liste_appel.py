@@ -226,7 +226,8 @@ class TestGabarit:
         assert 'Inscriptions pédagogiques non saisies' not in html
         # Et ce qui DOIT s'imprimer s'imprime toujours.
         assert 'dette · G2' in html
-        assert 'Trois' in html and 'rattaché·e · inscrit·e en SEA' in html
+        # Le rattaché figure, sans mention (demande du 05/10/2026).
+        assert 'Trois' in html and 'rattaché' not in html.split('<tbody>', 1)[1]
         assert 'Liste du groupe entier' in html
         assert 'L1 G1' in html
 

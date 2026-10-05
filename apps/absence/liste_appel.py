@@ -172,3 +172,21 @@ def lignes_de_fiche(etudiants, rattaches, dettes):
               + [{**e, 'statut': 'rattache'} for e in rattaches]
               + [{**e, 'statut': 'dette'} for e in dettes])
     return sorted(lignes, key=lambda l: ordre_matricule(l.get('matricule')))
+
+
+# Au-delà, une colonne ne tient plus sur une page A4 qu'avec des lignes trop
+# basses pour y écrire. Un CM réunit 40 à 47 étudiants (mesuré le 05/10/2026 :
+# L2 et L3, deux groupes chacun). En Calibri 11 pt, 35 lignes tiennent sur une
+# colonne : 32 garde une marge pour un nom long qui passe sur deux lignes.
+SEUIL_DEUX_COLONNES = 32
+
+
+def colonnes_de_fiche(lignes):
+    """Une longue liste en DEUX colonnes côte à côte, lues de haut en bas
+    (la gauche, puis la droite) : rend les paires (gauche, droite|None) d'une
+    même rangée. None sous le seuil — la fiche reste sur une colonne."""
+    if len(lignes) <= SEUIL_DEUX_COLONNES:
+        return None
+    moitie = (len(lignes) + 1) // 2
+    gauche, droite = lignes[:moitie], lignes[moitie:]
+    return [(g, droite[i] if i < len(droite) else None) for i, g in enumerate(gauche)]
