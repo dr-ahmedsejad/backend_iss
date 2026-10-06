@@ -137,9 +137,18 @@ class ReclamationAdminViewSet(viewsets.ModelViewSet):
 
 # ── Réclamations de séance (enseignant) ───────────────────────────────────────
 
+def _seances_du_de(user):
+    """Pointages des groupes que gère ce DE (ses `managed_departements`)."""
+    from apps.suivi.models import SuiviePointage
+    return (SuiviePointage.objects.filter(departements__in=user.managed_departements.all())
+            .values_list('pk', flat=True).distinct())
+
+
 class ReclamationsSeanceView(APIView):
     """
     GET  /api/v1/reclamations/seances/        — admin et IT : toutes ;
+                                                DE : celles des séances de
+                                                ses groupes ;
                                                 enseignant : les siennes.
     POST /api/v1/reclamations/seances/        — un enseignant réclame sur une
                                                 séance pointée QUI EST LA SIENNE.
@@ -158,6 +167,8 @@ class ReclamationsSeanceView(APIView):
             except Exception:
                 return Response({'detail': 'Profil enseignant introuvable.'}, status=404)
             qs = qs.filter(prof_id=prof.pk)
+        elif role == 'DE':
+            qs = qs.filter(pointage_id__in=_seances_du_de(request.user))
         elif role not in ('admin', 'IT'):
             return Response({'detail': 'Accès refusé.'}, status=403)
         statut = request.query_params.get('statut')
@@ -209,16 +220,20 @@ class ReclamationsSeanceView(APIView):
 
 
 class TraiterReclamationSeanceView(APIView):
-    """POST /api/v1/reclamations/seances/{id}/traiter/ — admin et IT.
+    """POST /api/v1/reclamations/seances/{id}/traiter/ — admin et IT ; DE pour
+    les séances de ses groupes.
 
     N'ajuste NI le pointage, NI la charge, NI la paie : la décision se reporte
     à la main sur le serveur de travail.
     """
-    permission_classes = [IsAdminOrIT]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
+        role = getattr(request.user, 'role', None)
+        if role not in ('admin', 'IT', 'DE'):
+            return Response({'detail': 'Accès refusé.'}, status=403)
         r = ReclamationSeance.objects.filter(pk=pk).first()
-        if r is None:
+        if r is None or (role == 'DE' and r.pointage_id not in set(_seances_du_de(request.user))):
             return Response({'detail': 'Réclamation introuvable.'}, status=404)
         ser = ReclamationSeanceTraiterSerializer(data=request.data)
         ser.is_valid(raise_exception=True)

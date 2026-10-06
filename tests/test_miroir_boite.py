@@ -159,7 +159,38 @@ class TestReclamationSeance:
         assert len(api(decor['ens_a']).get(self.URL).data) == 1
         assert api(decor['ens_b']).get(self.URL).data == []
         assert len(api(decor['it']).get(self.URL).data) == 1
-        assert api(decor['de']).get(self.URL).status_code == 403
+        # Un DE ne voit que les séances de SES groupes : sans groupe, rien.
+        assert api(decor['de']).get(self.URL).data == []
+
+    def test_le_de_voit_et_traite_celles_de_ses_groupes(self, decor, miroir):
+        dept = decor['dept']
+        decor['pointage_a'].departements.set([dept])
+        pk = api(decor['ens_a']).post(self.URL, {'pointage': decor['pointage_a'].pk,
+                                                 'motif': 'x'}).data['id']
+        assert api(decor['de']).post(f'{self.URL}{pk}/traiter/', {'statut': 'acceptee'}).status_code == 404
+        decor['de'].managed_departements.add(dept)
+        assert [r['id'] for r in api(decor['de']).get(self.URL).data] == [pk]
+        r = api(decor['de']).post(f'{self.URL}{pk}/traiter/', {'statut': 'rejetee', 'reponse': 'Non'})
+        assert r.status_code == 200 and r.data['statut'] == 'rejetee'
+
+    def test_l_enseignant_voit_l_etat_dans_sa_grille(self, decor, miroir):
+        """La grille de l'enseignant (web et app) montre l'état de SA contestation."""
+        from apps.parametres.models import Creneau, Jour
+        sp = decor['pointage_a']
+        sp.creneau_fk = Creneau.objects.create(creneau='08h00-09h30', ordre=1)
+        sp.jour_fk = Jour.objects.create(jour='Lundi')
+        sp.departements.set([decor['dept']])
+        sp.save()
+        pk = api(decor['ens_a']).post(self.URL, {'pointage': sp.pk, 'motif': 'x'}).data['id']
+
+        def etat():
+            g = api(decor['ens_a']).get('/api/v1/suivi/pointages/grille/', {
+                'annee_universitaire': '2026-2027', 'prof': decor['prof_a'].pk, 'numero_semaine': 3}).data
+            return [e['reclamation_statut'] for crs in g['grille'].values() for l in crs.values() for e in l]
+
+        assert etat() == ['en_attente']
+        api(decor['it']).post(f'{self.URL}{pk}/traiter/', {'statut': 'acceptee'})
+        assert etat() == ['acceptee']
 
     def test_traitement_par_l_informatique_et_avertissement(self, decor, miroir):
         pk = api(decor['ens_a']).post(self.URL, {'pointage': decor['pointage_a'].pk,

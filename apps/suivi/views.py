@@ -1233,6 +1233,17 @@ class SuiviePointageViewSet(InstitutionScopedMixin, DepartementScopedMixin, Audi
         if scope_dept_ids is not None:
             qs_seances = qs_seances.filter(departements__in=scope_dept_ids).distinct()
 
+        # Les contestations déposées en ligne (portail enseignant, app) vivent
+        # dans `ReclamationSeance` : la grille montre l'état de la dernière,
+        # sinon l'ancien champ du pointage.
+        from apps.reclamations.models import ReclamationSeance
+        qs_seances = list(qs_seances)
+        contestations = {}
+        for pid, st in (ReclamationSeance.objects
+                        .filter(pointage_id__in=[sp.pk for sp in qs_seances])
+                        .order_by('date_soumission', 'pk').values_list('pointage_id', 'statut')):
+            contestations[pid] = st
+
         grille = defaultdict(lambda: defaultdict(list))
         for sp in qs_seances:
             if not sp.creneau_fk_id:
@@ -1254,7 +1265,7 @@ class SuiviePointageViewSet(InstitutionScopedMixin, DepartementScopedMixin, Audi
                 'dept_noms':              dept_noms,
                 'commentaire':            sp.commentaire,
                 'numero_semaine':         sp.numero_semaine,
-                'reclamation_statut':     sp.reclamation_statut,
+                'reclamation_statut':     contestations.get(sp.pk) or sp.reclamation_statut,
             })
 
         creneaux_used = list(
