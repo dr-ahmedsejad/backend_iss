@@ -98,6 +98,47 @@ class TestValide:
         assert Notification.objects.count() == 0
 
 
+class TestEnseignant:
+    """L'enseignant qui fait cours cette semaine est prévenu aussi (app enseignant)."""
+
+    def _compte(self, monde, nom='Moustapha', actif=True):
+        from apps.authentication.models import CustomUser
+        u = CustomUser.objects.create_user(username='prof_%s' % nom, email='%s@iss.mr' % nom,
+                                           password='x', role='enseignant', is_active=actif)
+        p = monde['profs'][nom]
+        p.user = u
+        p.save(update_fields=['user'])
+        return u
+
+    def _notifs(self, user):
+        from apps.notifications.models import Notification
+        return list(Notification.objects.filter(destinataire=user).order_by('created_at'))
+
+    def test_l_enseignant_de_la_semaine_est_prevenu_une_fois(self, monde, gens, classe):
+        prof = self._compte(monde)
+        poser(monde, 'G1', 1)
+        poser(monde, 'G2', 1)
+        assert generer(gens['admin'], 1).status_code < 400
+        [n] = self._notifs(prof)
+        assert n.titre == 'Emploi du temps de la semaine 1 validé'
+        assert n.lien == '/dashboard/portail/emploi'
+
+    def test_une_semaine_regeneree_lui_est_annoncee_modifiee(self, monde, gens, classe):
+        prof = self._compte(monde)
+        poser(monde, 'G1', 1)
+        generer(gens['admin'], 1)
+        supprimer(gens['admin'], 1)
+        generer(gens['admin'], 1)
+        assert [n.titre for n in self._notifs(prof)] == [
+            'Emploi du temps de la semaine 1 validé', 'Emploi du temps de la semaine 1 modifié']
+
+    def test_compte_desactive_pas_prevenu(self, monde, gens, classe):
+        prof = self._compte(monde, actif=False)
+        poser(monde, 'G1', 1)
+        generer(gens['admin'], 1)
+        assert self._notifs(prof) == []
+
+
 class TestModifie:
 
     def test_une_semaine_regeneree_est_annoncee_modifiee(self, monde, gens, classe):

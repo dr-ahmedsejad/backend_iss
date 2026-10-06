@@ -77,9 +77,9 @@ def firebase(monkeypatch):
     """Un Firebase simulé : configuré, et qui note ce qu'on lui envoie."""
     from apps.notifications import push
     envois = []
-    monkeypatch.setattr(push, 'configure', lambda: True)
+    monkeypatch.setattr(push, 'configure', lambda chemin=None: True)
     monkeypatch.setattr(push, 'envoyer',
-                        lambda jeton, titre, corps, donnees=None:
+                        lambda jeton, titre, corps, donnees=None, chemin=None:
                         envois.append((jeton, titre, corps, donnees)))
     return envois
 
@@ -138,7 +138,7 @@ class TestEnvoi:
         def perime(*a, **k):
             raise push.JetonInvalide('UNREGISTERED')
 
-        monkeypatch.setattr(push, 'configure', lambda: True)
+        monkeypatch.setattr(push, 'configure', lambda chemin=None: True)
         monkeypatch.setattr(push, 'envoyer', perime)
         appareil(comptes[0])
         notifier(comptes[0])
@@ -154,7 +154,7 @@ class TestEnvoi:
             essais.append(1)
             raise OSError('réseau')
 
-        monkeypatch.setattr(push, 'configure', lambda: True)
+        monkeypatch.setattr(push, 'configure', lambda chemin=None: True)
         monkeypatch.setattr(push, 'envoyer', panne)
         appareil(comptes[0])
         notifier(comptes[0])
@@ -162,6 +162,46 @@ class TestEnvoi:
         assert not PushEnvoye.objects.exists()      # rendue : on réessaiera
         call_command('envoyer_push')
         assert len(essais) == 2
+
+
+class TestAppEnseignant:
+    """L'app enseignant est un autre projet Firebase : ses téléphones
+    reçoivent avec SA clé, ceux des étudiants avec la leur."""
+
+    def _firebase(self, monkeypatch, settings, cle_enseignant):
+        from apps.notifications import push
+        settings.FIREBASE_CREDENTIALS = '/cles/etudiant.json'
+        settings.FIREBASE_CREDENTIALS_ENSEIGNANT = cle_enseignant
+        envois = []
+        monkeypatch.setattr(push, 'configure', lambda chemin=None: bool(chemin or push.cle_etudiant()))
+        monkeypatch.setattr(push, 'envoyer', lambda jeton, titre, corps, donnees=None, chemin=None:
+                            envois.append((jeton, chemin)))
+        return envois
+
+    def _prof(self):
+        from apps.authentication.models import CustomUser
+        return CustomUser.objects.create_user(username='prof1', email='prof1@iss.mr', password='x',
+                                              role='enseignant')
+
+    def test_chaque_app_sa_cle(self, comptes, monkeypatch, settings):
+        envois = self._firebase(monkeypatch, settings, '/cles/enseignant.json')
+        prof = self._prof()
+        appareil(comptes[0], 'ETU')
+        appareil(prof, 'PROF')
+        notifier(comptes[0])
+        notifier(prof)
+        call_command('envoyer_push')
+        assert sorted(envois) == [('ETU', None), ('PROF', '/cles/enseignant.json')]
+
+    def test_sans_cle_enseignant_les_etudiants_recoivent_quand_meme(self, comptes, monkeypatch, settings):
+        envois = self._firebase(monkeypatch, settings, '')
+        prof = self._prof()
+        appareil(comptes[0], 'ETU')
+        appareil(prof, 'PROF')
+        notifier(comptes[0])
+        notifier(prof)
+        call_command('envoyer_push')
+        assert envois == [('ETU', None)]
 
 
 class TestMiroir:

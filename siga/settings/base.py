@@ -399,6 +399,8 @@ SYNC_TIMEOUT_S    = config('SYNC_TIMEOUT_S',   default=900, cast=int)
 # (secrets/, monté sur /app/secrets). Vide ou illisible → aucun push ne part,
 # et rien d'autre ne change : les notifications restent dans la cloche.
 FIREBASE_CREDENTIALS = config('FIREBASE_CREDENTIALS', default='')
+# App enseignant : autre projet Firebase, donc sa propre clé (même règle).
+FIREBASE_CREDENTIALS_ENSEIGNANT = config('FIREBASE_CREDENTIALS_ENSEIGNANT', default='')
 BACKUP_OPENSSL_BIN   = config('BACKUP_OPENSSL_BIN',   default='openssl')
 # Retention des backups manuels chiffres (jours). Le cleanup tourne via cron.
 BACKUP_MANUAL_RETENTION_DAYS = config(

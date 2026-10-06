@@ -17,6 +17,7 @@ from django.core.management.base import BaseCommand
 from django.db import IntegrityError
 from django.utils import timezone
 
+from apps.authentication.models import CustomUser
 from apps.notifications import push
 from apps.notifications.models import AppareilPush, Notification, NotificationLecture, PushEnvoye
 
@@ -31,7 +32,15 @@ class Command(BaseCommand):
                             help="Affiche ce qui serait envoyé, sans rien envoyer ni noter.")
 
     def handle(self, *args, depuis_heures, essai, **opts):
-        if not push.configure():
+        # Deux apps, deux projets Firebase : la clé suit le rôle du destinataire.
+        # Valeur : chemin de la clé (None = celle de l'app étudiante) ; absente
+        # = pas de clé pour cette app, ses téléphones sont ignorés.
+        cles = {}
+        if push.configure():
+            cles['etudiant'] = None
+        if push.cle_enseignant() and push.configure(push.cle_enseignant()):
+            cles['enseignant'] = push.cle_enseignant()
+        if not cles:
             self.stdout.write('Push désactivé (FIREBASE_CREDENTIALS absent ou illisible).')
             return
 
@@ -47,12 +56,16 @@ class Command(BaseCommand):
         appareils = {}
         for a in AppareilPush.objects.filter(user_id__in={n.destinataire_id for n in notifs}):
             appareils.setdefault(a.user_id, []).append(a)
+        enseignants = set(CustomUser.objects.filter(pk__in=appareils, role='enseignant')
+                          .values_list('pk', flat=True))
 
         envoyees = sans_appareil = erreurs = 0
         for n in notifs:
             if (n.pk, n.created_at) in deja:
                 continue
-            cibles = appareils.get(n.destinataire_id, [])
+            app = 'enseignant' if n.destinataire_id in enseignants else 'etudiant'
+            cle = cles.get(app)
+            cibles = appareils.get(n.destinataire_id, []) if app in cles else []
             deja_lue = n.lue or (n.pk, n.destinataire_id) in lues_en_ligne
             if essai:
                 self.stdout.write(f'#{n.pk} → user #{n.destinataire_id} : {len(cibles)} appareil(s)'
@@ -71,7 +84,7 @@ class Command(BaseCommand):
                 # n'en porte pas, contrairement au privé) : le français pour tous.
                 try:
                     push.envoyer(a.jeton, n.titre, n.message,
-                                 {'notification_id': n.pk, 'type': n.type, 'lien': n.lien})
+                                 {'notification_id': n.pk, 'type': n.type, 'lien': n.lien}, chemin=cle)
                     ok += 1
                 except push.JetonInvalide:
                     a.delete()  # app désinstallée / jeton périmé

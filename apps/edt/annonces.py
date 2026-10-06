@@ -1,5 +1,6 @@
 """
-Prévenir les étudiants que l'emploi du temps de leur semaine est validé.
+Prévenir les étudiants que l'emploi du temps de leur semaine est validé —
+et les enseignants qui y font cours (app enseignant).
 
 L'emploi du temps planifié reste provisoire tant que le suivi de la semaine
 n'est pas généré : la génération en fait le vrai, celui que le portail et
@@ -58,6 +59,34 @@ def _textes(numero, periode, modifie):
     return titre, message
 
 
+def _annoncer_enseignants(annee, type_semestre, numero, premiers, de_nouveau, periode):
+    """Chaque enseignant (avec un compte actif) qui fait cours cette semaine à
+    l'un de ces groupes : une seule notification, « validé » si l'un de ses
+    groupes est annoncé pour la première fois, sinon « modifié »."""
+    from apps.suivi.models import Suivie
+    groupes = set(premiers) | set(de_nouveau)
+    if not groupes:
+        return 0
+    lignes = (Suivie.objects
+              .filter(annee_universitaire=annee, type_semestre=type_semestre, numero_semaine=numero,
+                      departement_id__in=groupes, prof__user__isnull=False, prof__user__is_active=True)
+              .values_list('prof__user_id', 'departement_id').distinct())
+    nouveaux = {}  # user_id → au moins un groupe annoncé pour la première fois
+    for user_id, dep in lignes:
+        nouveaux[user_id] = nouveaux.get(user_id, False) or dep in premiers
+    if not nouveaux:
+        return 0
+    from apps.authentication.models import CustomUser
+    comptes = {u.pk: u for u in CustomUser.objects.filter(pk__in=nouveaux)}
+    total = 0
+    for modifie in (False, True):
+        cibles = [comptes[u] for u, nouveau in nouveaux.items() if nouveau != modifie and u in comptes]
+        if cibles:
+            titre, message = _textes(numero, periode, modifie)
+            total += notifier(cibles, titre, message, type='info', lien=LIEN_EMPLOI)
+    return total
+
+
 @transaction.atomic
 def annoncer_semaine(annee, type_semestre, numero, departements):
     """Annonce la semaine aux étudiants (avec un compte actif) de ces groupes.
@@ -91,5 +120,6 @@ def annoncer_semaine(annee, type_semestre, numero, departements):
                      .select_related('user')]
         titre, message = _textes(numero, periode, modifie)
         bilan[cle] = notifier(etudiants, titre, message, type='info', lien=LIEN_EMPLOI)
+    bilan['enseignants'] = _annoncer_enseignants(annee, type_semestre, numero, premiers, de_nouveau, periode)
     logger.info('Emploi S%s %s %s annoncé : %s', numero, annee, type_semestre, bilan)
     return bilan

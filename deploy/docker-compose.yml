@@ -186,6 +186,8 @@ services:
       # Firebase, déposée à la main dans ../secrets (monté ci-dessous). Absente
       # → aucun push, rien d'autre ne change.
       FIREBASE_CREDENTIALS: ${FIREBASE_CREDENTIALS:-/app/secrets/firebase-iss.json}
+      # App enseignant (autre projet Firebase) : sa clé, même dossier.
+      FIREBASE_CREDENTIALS_ENSEIGNANT: ${FIREBASE_CREDENTIALS_ENSEIGNANT:-/app/secrets/firebase-iss-enseignant.json}
     volumes:
       # Bind-mount du dossier media local : les fichiers existants sont visibles
       # immediatement, et tout nouvel upload depuis SIGA apparait sur ton disque.
