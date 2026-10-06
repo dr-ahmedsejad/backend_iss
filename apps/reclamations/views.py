@@ -228,6 +228,9 @@ class TraiterReclamationSeanceView(APIView):
         r.traitee_par_nom = _nom(request.user)
         r.date_traitement = timezone.now()
         r.save()
+        # L'enseignant apprend la décision (cloche, app « ISS Enseignant »).
+        from apps.notifications.enseignants import contestation_traitee
+        contestation_traitee(r)
         data = ReclamationSeanceSerializer(r).data
         data['avertissement'] = AVERTISSEMENT_TRAITEMENT
         return Response(data)

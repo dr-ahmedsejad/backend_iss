@@ -979,6 +979,9 @@ class MesReclamationsView(APIView):
             motif=v['motif'],
             justificatif=v.get('justificatif'),
         )
+        # L'enseignant de l'élément est prévenu (cloche, app « ISS Enseignant »).
+        from apps.notifications.enseignants import reclamation_deposee
+        reclamation_deposee(reclamation)
         return Response(ReclamationSerializer(reclamation).data, status=status.HTTP_201_CREATED)
 
 

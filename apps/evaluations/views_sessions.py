@@ -118,8 +118,13 @@ class SessionEvaluationViewSet(InstitutionScopedMixin, viewsets.ModelViewSet):
         session = self.get_object()
         if session.est_close:
             return Response({'detail': 'Session déjà clôturée.'}, status=status.HTTP_400_BAD_REQUEST)
+        deja = session.est_ouverte
         session.est_ouverte = True
         session.save(update_fields=['est_ouverte'])
+        if not deja:
+            # Les enseignants concernés sont prévenus (app « ISS Enseignant »).
+            from apps.notifications.enseignants import session_ouverte
+            session_ouverte(session)
         return Response(SessionEvaluationSerializer(session).data)
 
     @action(detail=True, methods=['post'], url_path='cloturer')
