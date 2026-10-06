@@ -82,15 +82,10 @@ def _compute_avancement_em(annee, type_semestre, semestre_id=None):
     Calcule l'avancement complet (planification / realisation / %) pour tous les EMs.
     Utilise Suivie (toutes les seances = realisees) et MAX inter-departements atomiques.
     """
-    # EMs filtres par type de semestre et annee
-    base_em = (
-        EMModel.objects
-        .filter(
-            semestre__type_semestre=type_semestre,
-            departement__annee_universitaire=annee,
-        )
-        .select_related('semestre')
-    )
+    # EMs de l'annee : derives des groupes (filiere + niveau), et non plus du
+    # `departement` VESTIGIAL de l'EM — voir apps/avancement/ems_annee.py.
+    from .ems_annee import ems_de_l_annee
+    base_em = ems_de_l_annee(annee, type_semestre).select_related('semestre')
     if semestre_id:
         base_em = base_em.filter(semestre_id=semestre_id)
 
@@ -1194,9 +1189,12 @@ class StatistiquesSemestresView(APIView):
         libelle_semestres = "pairs" if ts == "Pairs" else "impairs"
 
         # 3. Récupération des codes semestres (S1, S2, S3...)
+        # EMs de l'année : dérivés des groupes (filière + niveau), et non plus du
+        # `departement` VESTIGIAL de l'EM — voir apps/avancement/ems_annee.py.
+        from .ems_annee import ems_de_l_annee
+        ems_annee = ems_de_l_annee(annee, type_semestre)
         sem_codes = (
-            EM.objects
-            .filter(semestre__type_semestre=type_semestre, departement__annee_universitaire=annee)
+            ems_annee
             .values_list('semestre__code_semestre', flat=True)
             .distinct()
             .order_by('semestre__code_semestre')
@@ -1210,11 +1208,7 @@ class StatistiquesSemestresView(APIView):
 
         # 4. Calculs pour chaque semestre
         for code in sem_codes:
-            ems = EM.objects.filter(
-                semestre__code_semestre=code,
-                semestre__type_semestre=type_semestre,
-                departement__annee_universitaire=annee
-            )
+            ems = ems_annee.filter(semestre__code_semestre=code)
 
             # Volume horaire PREVU
             planned_cm = ems.aggregate(s=Sum('CM'))['s'] or 0
