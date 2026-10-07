@@ -14,6 +14,9 @@ from core.mirror import InstanceView
 # La generation du suivi projette d'abord la semaine reclamee. Voir plus bas
 # pour la capture d'URL, et apps/edt/generation.py pour ce qu'elle supprime.
 from apps.edt.generation import SuivieAvecProjectionViewSet
+# L'attestation d'enseignement porte aussi les surveillances d'examens. Voir
+# apps/documents/attestation_surveillances.py ; apps/vacation n'est pas modifié.
+from apps.documents.attestation_surveillances import AttestationAvecSurveillancesViewSet
 
 urlpatterns = [
     # Admin Django
@@ -45,6 +48,11 @@ urlpatterns = [
          name='suivie-ajouter'),
     path('api/v1/suivi/',       include('apps.suivi.urls')),
     path('api/v1/absences/',    include('apps.absence.urls')),
+    # `vacations/pdf-attestation/` est capté AVANT le routeur des vacations :
+    # la vue héritée ajoute les surveillances, puis délègue au calcul d'origine.
+    path('api/v1/vacations/pdf-attestation/',
+         AttestationAvecSurveillancesViewSet.as_view({'get': 'pdf_attestation'}),
+         name='vacation-pdf-attestation-surveillances'),
     path('api/v1/vacations/',   include('apps.vacation.urls')),
     path('api/v1/avancement/',  include('apps.avancement.urls')),
     # ── Scolarite LMD ────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load attestations %}<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
@@ -92,11 +92,10 @@
 
     <div class="titre-attestation">{{ titre_document }}</div>
 
-    {% if numero_attestation %}
-    <div style="text-align:right; font-size:10pt; color:#555; margin: -6px 0 8px 0;">
-        N° <strong>{{ numero_attestation }}</strong>
-    </div>
-    {% endif %}
+    {% comment %}
+      Le numéro et la date sont dans l'en-tête (entete_DG.html), à la place des
+      pointillés « N° ISS … / Nouakchott, le … » qui restaient vides.
+    {% endcomment %}
 
     <div class="corps">
 
@@ -104,7 +103,7 @@
             Je soussigné{% if inst_directeur_fr %} <span class="bold">{{ inst_directeur_fr }}</span>{% endif %},
             {{ inst_directeur_titre_fr|default:"le Directeur" }} {{ inst_de_sigle }},
             atteste que
-            <span class="bold">{{ civilite }} {{ prof.nom }}</span>{% if prof.type != 'militaire' %} -{% endif %}
+            <span class="bold">{{ civilite }} {{ prof.nom }}</span>{% if prof.type != 'militaire' %},{% endif %}
             {% if prof.type == 'permanent' %}
             <span class="bold">{{ qualite }}</span>
             {% elif prof.type == 'contractuel' %}
@@ -113,13 +112,14 @@
 
             {% if afficher_nni %}
             titulaire du NNI <span class="bold">{{ prof.NNI }}</span>{% endif %},
-            a {% if is_service_fait %}effectué{% else %}assuré{% endif %} <span class="bold">{{ texte_types }}</span>
+            a {% if is_service_fait %}effectué{% else %}assuré{% endif %} <span class="bold">{% if is_service_fait %}{{ texte_types }}{% else %}{{ modules|texte_seances:texte_types }}{% endif %}</span>
             pour un volume total de
             <span class="bold">{% if is_service_fait %}{{ grand_total_heures|floatformat:2 }} heures{% else %}{{ grand_total_ponde|floatformat:2 }} heures équivalent CM{% endif %}</span>
             durant l&rsquo;année universitaire
             <span class="bold">{{ annee_universitaire }}</span>{% if date_debut_periode and date_fin_periode %}
             <span style="color:#555;">(période du <span class="bold">{{ date_debut_periode }}</span> au <span class="bold">{{ date_fin_periode }}</span>)</span>{% endif %},
-            à l&rsquo;Institut,{% if texte_filieres_description %}
+            à l&rsquo;Institut,{% if not is_service_fait and modules|phrase_filieres %}
+            {{ modules|phrase_filieres }}{% elif texte_filieres_description %}
             en filière <span class="bold">{{ texte_filieres_description }}</span>{% elif texte_depts_description and texte_depts_description != 'divers départements' %}
             en <span class="bold">{{ texte_depts_description }}</span>{% endif %}.
             Ce volume horaire est réparti comme suit&nbsp;:
@@ -176,7 +176,13 @@
                 </tr>
             </thead>
             <tbody>
-                {% for m in modules %}
+                {% comment %}
+                  Seules les lignes qui portent des heures : une surveillance
+                  d'examen saisie avec l'EM de l'épreuve créait une ligne à
+                  0,00 h, comme si l'EM avait été enseigné (core/templatetags/
+                  attestations.py).
+                {% endcomment %}
+                {% for m in modules|avec_heures %}
                 <tr>
                     {% if m.is_encadrement_perm %}
                     {# Ligne Encadrement permanent : Filiere/Niv/Sem/Module fusionnes en 1 cellule #}
@@ -214,6 +220,31 @@
                 </tr>
             </tbody>
         </table>
+        {% endif %}
+
+        {% if not is_service_fait and surveillances %}
+        {% comment %}
+          Les surveillances d'examens : UNE ligne, à part, HORS du volume
+          équivalent CM (décision du 07/10/2026). Ajoutées par
+          apps/documents/attestation_surveillances.py.
+        {% endcomment %}
+        <table class="modules" style="margin-top:10px;">
+            <thead>
+                <tr>
+                    <th>Activité hors enseignement</th>
+                    <th>Nombre</th>
+                    <th>Heures</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="font-weight:bold; color:#1a3a5c; text-align:left; padding-left:10px;">Surveillance d'examens</td>
+                    <td>{{ surveillances.nombre }}</td>
+                    <td><strong>{{ surveillances.heures|floatformat:1 }} h</strong></td>
+                </tr>
+            </tbody>
+        </table>
+        <p class="note-pondere">Les heures de surveillance ne sont pas comptées dans le volume horaire équivalent CM.</p>
         {% endif %}
 
         {% if not is_service_fait %}

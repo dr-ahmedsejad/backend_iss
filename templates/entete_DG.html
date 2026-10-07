@@ -129,7 +129,7 @@
 
     <tr>
         <td class="col-fr tout-vert">
-            <span style="font-weight:bold;">Ministre de la Défense, des Retraités et des Enfants des Martyrs</span>
+            <span style="font-weight:bold;">Ministère de la Défense, des Retraités et des Enfants des Martyrs</span>
         </td>
         <td class="col-ar tout-vert">
             <span>وزارة الدفاع وشؤون المتقاعدين وأولاد الشهداء</span>
@@ -160,12 +160,12 @@
 <table class="ref-table">
     <tr>
         <td class="ref-fr tout-vert">
-            <div>N° ISS <span class="dots"></span></div>
-            <div>Nouakchott, le <span class="dots"></span></div>
+            <div>N° ISS {% if numero_attestation %}<strong>{{ numero_attestation }}</strong>{% else %}<span class="dots"></span>{% endif %}</div>
+            <div>Nouakchott, le {% if date_generation %}<strong>{{ date_generation }}</strong>{% else %}<span class="dots"></span>{% endif %}</div>
         </td>
         <td class="ref-ar tout-vert">
-            <div>الرقم / م. ع.إ. <span class="dots"></span></div>
-            <div>نواكشوط بتاريخ <span class="dots"></span></div>
+            <div>الرقم / م. ع.إ. {% if numero_attestation %}<strong dir="ltr">{{ numero_attestation }}</strong>{% else %}<span class="dots"></span>{% endif %}</div>
+            <div>نواكشوط بتاريخ {% if date_generation %}<strong dir="ltr">{{ date_generation }}</strong>{% else %}<span class="dots"></span>{% endif %}</div>
         </td>
     </tr>
 </table>
