@@ -53,6 +53,26 @@ class FiliereSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate(self, attrs):
+        """Le département académique est OBLIGATOIRE (décision du 08/10/2026).
+
+        Le formulaire d'ajout ne le demandait pas : une filière créée par lui
+        restait sans département, et disparaissait des listes filtrées par
+        département (création d'un groupe). Le modèle le garde facultatif pour
+        les filières anciennes ; on l'exige ici, à la création comme à la
+        modification — une modification partielle qui n'y touche pas passe.
+        """
+        attrs = super().validate(attrs)
+        if self.instance is None:
+            manquant = not attrs.get('departement_academique')
+        else:
+            manquant = ('departement_academique' in attrs
+                        and attrs['departement_academique'] is None)
+        if manquant:
+            raise serializers.ValidationError({
+                'departement_academique': 'Le département académique est obligatoire.'})
+        return attrs
+
 
 class FiliereListSerializer(serializers.ModelSerializer):
     """Serializer leger pour les listes de selection (dropdowns, filtres)."""
