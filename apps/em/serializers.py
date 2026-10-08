@@ -57,6 +57,22 @@ class EMSerializer(serializers.ModelSerializer):
             'institution': {'required': False, 'allow_null': True},
         }
 
+    def to_internal_value(self, data):
+        """Filière absente : celle du module LMD choisi.
+
+        La filière identifie l'EM (un code par filière) et le validateur
+        d'unicité l'exige. Les formulaires la déduisaient du département
+        (groupe) choisi ; depuis que celui-ci n'est plus demandé (08/10/2026),
+        elle vient du module LMD — comme EM.save le fait déjà.
+        """
+        if self.instance is None and not data.get('filiere') and data.get('module_lmd'):
+            from apps.modules.models import Module
+            filiere = (Module.objects.filter(pk=data.get('module_lmd'))
+                       .values_list('filiere_id', flat=True).first())
+            if filiere:
+                data = {**(data.dict() if hasattr(data, 'dict') else data), 'filiere': filiere}
+        return super().to_internal_value(data)
+
     def validate(self, attrs):
         # Defense-in-depth : injecter l'institution principale si absente.
         # Quand le scoping multi-institution sera complet, remplacer par

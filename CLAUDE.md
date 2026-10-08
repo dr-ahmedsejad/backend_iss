@@ -163,13 +163,16 @@ cd c:/SIR/ISS_SIGA/frontend_iss && npm run dev
 Les tests tournent sur **sqlite en mémoire** : ils ne touchent jamais `iss`. En contrepartie,
 tout SQL brut spécifique à un vendor doit avoir un test sous `--migrations` ou `settings.test_pg`.
 
-**Baseline au 2026-08-17 : `357 passed, 5 failed, 1 xfailed` en ~16 s.** Toute exécution qui dépasse
-5 échecs = régression introduite par ton edit. Les 5 échecs connus (antérieurs, pas des régressions) :
+**Baseline au 2026-10-08 : `992 passed, 2 failed, 1 xfailed` en ~45 s.** Toute exécution qui dépasse
+2 échecs = régression introduite par ton edit. Les 2 échecs connus (antérieurs, pas des régressions) :
 | Test | Symptôme |
 |---|---|
 | `apps/documents/test_verification_publique.py::test_aucune_donnee_technique_exposee` | le champ `semestre` fuit dans la réponse publique `/verifier/` |
-| `apps/evaluations/test_coherence_maquette.py::BlocageQuatriemeElementTest` (3 tests) | blocage du 4ᵉ EM non appliqué par le serializer |
 | `tests/test_case_collision_scan.py::test_collision_composite_em` | `assert None is not None` — scan de collision de casse |
+
+`BlocageQuatriemeElementTest` (3 tests) passe depuis le 08/10/2026 : il échouait sur
+« filiere : Ce champ est obligatoire » — la filière d'un EM est désormais déduite du module LMD
+(`EMSerializer.to_internal_value`).
 
 Le `xfail` est documenté : seuil DNI codé en dur à 65 % (`test_calcul_notes.py`), à paramétrer par
 `type_diplome`.
