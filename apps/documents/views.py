@@ -170,6 +170,53 @@ class DocumentOfficielViewSet(InstitutionScopedMixin, viewsets.ReadOnlyModelView
         resp['Access-Control-Expose-Headers'] = 'X-Generated, X-Total'
         return resp
 
+    @action(detail=False, methods=['get', 'post'], url_path='releves-etudiant')
+    def releves_etudiant(self, request):
+        """Les relevés de notes d'un ou de plusieurs étudiants, en un PDF.
+
+        GET  ?etudiant=ID          : ses semestres, avec moyenne et décision (aperçu).
+        POST {etudiants: [ID, ...]} (ou {etudiant: ID}) : leurs relevés (semestres
+             qui ont des résultats), étudiant par étudiant dans l'ordre donné,
+             fusionnés. Voir releves_etudiant.py.
+        """
+        from apps.absence.models import Etudiant
+        from .releves_etudiant import generer_releves_etudiants, semestres_de
+
+        source = request.query_params if request.method == 'GET' else (request.data or {})
+        _check_doc_module(request.user, 'releve_semestre',
+                          action='voir' if request.method == 'GET' else 'modifier')
+        ids = source.get('etudiants') if request.method == 'POST' else None
+        if not ids:
+            ids = [source.get('etudiant')]
+        try:
+            ids = [int(i) for i in ids]
+        except (TypeError, ValueError):
+            return Response({'detail': 'Étudiant introuvable.'}, status=status.HTTP_400_BAD_REQUEST)
+        trouves = Etudiant.objects.in_bulk(ids)
+        if not ids or any(i not in trouves for i in ids):
+            return Response({'detail': 'Étudiant introuvable.'}, status=status.HTTP_400_BAD_REQUEST)
+        etudiants = [trouves[i] for i in dict.fromkeys(ids)]      # ordre donné, sans doublon
+
+        if request.method == 'GET':
+            etudiant = etudiants[0]
+            return Response({'etudiant': {'id': etudiant.pk, 'matricule': etudiant.matricule,
+                                          'nom': etudiant.nom},
+                             'semestres': semestres_de(etudiant)})
+        try:
+            pdf_bytes, bilan = generer_releves_etudiants(etudiants, request.user)
+        except ValueError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        from django.http import HttpResponse
+        resp = HttpResponse(pdf_bytes, content_type='application/pdf')
+        nom = (f'releves_{etudiants[0].matricule}.pdf' if len(etudiants) == 1
+               else f'releves_{len(etudiants)}_etudiants.pdf')
+        resp['Content-Disposition'] = entete_piece_jointe(nom, inline=True)
+        resp['X-Generated'] = str(sum(b['releves'] for b in bilan))
+        resp['X-Total'] = str(sum(len(b['semestres']) for b in bilan))
+        resp['X-Etudiants-Sans-Releve'] = ','.join(b['matricule'] for b in bilan if not b['releves'])
+        resp['Access-Control-Expose-Headers'] = 'X-Generated, X-Total, X-Etudiants-Sans-Releve'
+        return resp
+
     @action(detail=True, methods=['post'], url_path='regenerer')
     def regenerer(self, request, pk=None):
         """Vide le PDF cache d'un document — forcera la regeneration au prochain telechargement."""
