@@ -23,6 +23,7 @@ from .serializers import (
     SuiviePointageSerializer, ChargeInstitutionSerializer,
 )
 from ..emplois.models import Emplois, EmploisArchive
+from django.utils import timezone
 
 logger = logging.getLogger('siga')
 
@@ -1058,6 +1059,15 @@ class SuiviePointageViewSet(InstitutionScopedMixin, DepartementScopedMixin, Audi
             return [IsAuthenticated()]
         return super().get_permissions()
 
+    def perform_update(self, serializer):
+        # Statut saisi dans le formulaire = pointage (heure retenue).
+        if 'commentaire' in serializer.validated_data:
+            serializer.save(pointe_le=timezone.now())
+            logger.info('[%s] UPDATE SuiviePointage#%s (pointage) by user=%s',
+                        self.__class__.__name__, serializer.instance.pk, self.request.user.username)
+            return
+        super().perform_update(serializer)
+
     # ── Nombre de semestres actifs (carte « Emplois » du tableau de bord) ────
     @action(detail=False, methods=['get'], url_path='semestres-actifs')
     def semestres_actifs(self, request):
@@ -1244,6 +1254,9 @@ class SuiviePointageViewSet(InstitutionScopedMixin, DepartementScopedMixin, Audi
                         .order_by('date_soumission', 'pk').values_list('pointage_id', 'statut')):
             contestations[pid] = st
 
+        from .statut_pointage import derniers_pointages, statut_affiche
+        derniers = derniers_pointages(qs_seances)
+
         grille = defaultdict(lambda: defaultdict(list))
         for sp in qs_seances:
             if not sp.creneau_fk_id:
@@ -1264,6 +1277,9 @@ class SuiviePointageViewSet(InstitutionScopedMixin, DepartementScopedMixin, Audi
                 'salle_nom':              sp.salle.nom if sp.salle else None,
                 'dept_noms':              dept_noms,
                 'commentaire':            sp.commentaire,
+                # « Fait », « Reporté », « Non fait » (constaté) ou « En attente »
+                # (pas encore pointée) — `commentaire` reste la valeur brute.
+                'statut':                 statut_affiche(sp, derniers.get(sp.pk)),
                 'numero_semaine':         sp.numero_semaine,
                 'reclamation_statut':     contestations.get(sp.pk) or sp.reclamation_statut,
             })
@@ -1465,7 +1481,8 @@ class SuiviePointageViewSet(InstitutionScopedMixin, DepartementScopedMixin, Audi
     def toggle_commentaire(self, request, pk=None):
         sp = self.get_object()
         sp.commentaire = 'Fait' if sp.commentaire == 'Non fait' else 'Non fait'
-        sp.save(update_fields=['commentaire'])
+        sp.pointe_le = timezone.now()   # heure du pointage (statut_pointage.py)
+        sp.save(update_fields=['commentaire', 'pointe_le'])
         return Response({'id': sp.pk, 'commentaire': sp.commentaire})
 
     # ── POST /api/v1/suivi/pointages/bulk-update/ ─────────────────────────
@@ -1502,13 +1519,16 @@ class SuiviePointageViewSet(InstitutionScopedMixin, DepartementScopedMixin, Audi
         # Capture des anciens commentaires AVANT modification (pour audit per-row).
         old_commentaires = {pk: sp.commentaire for pk, sp in sps.items()}
         to_update = []
+        maintenant = timezone.now()
         for u in updates:
             sp = sps.get(u.get('id'))
             if sp and u.get('commentaire') in ('Fait', 'Non fait', 'Reporté'):
                 sp.commentaire = u['commentaire']
+                # Ligne envoyée = séance vue au pointage, même laissée « Non fait ».
+                sp.pointe_le = maintenant
                 to_update.append(sp)
         if to_update:
-            SuiviePointage.objects.bulk_update(to_update, ['commentaire'])
+            SuiviePointage.objects.bulk_update(to_update, ['commentaire', 'pointe_le'])
             # Audit per-row : bulk_update ne declenche pas de signal. Sans ce
             # log, le drawer historique de chaque pointage afficherait juste
             # l'aggregat BULK_UPDATE sans pouvoir remonter au detail.

@@ -2,6 +2,7 @@
 Le vacataire voit, mois par mois, ce qu'il a gagné ET le détail de ses
 séances : faites (payées), non faites ou reportées (non payées), avec leurs
 dates — `avancement/suivi-pointage-prof/?tous=1` (app « ISS Enseignant »).
+Un « Non fait » jamais pointé (valeur par défaut) y est « En attente ».
 
 Sans `tous`, la réponse ne change pas (portail web) ; avec, les totaux ne
 comptent toujours que ce qui est payé.
@@ -25,9 +26,9 @@ def _prof(monde):
     return u
 
 
-def _pointage(monde, jour, commentaire):
+def _pointage(monde, jour, commentaire, pointe_le=None):
     from apps.suivi.models import SuiviePointage
-    return SuiviePointage.objects.create(
+    return SuiviePointage.objects.create(pointe_le=pointe_le,
         annee_universitaire=ANNEE, numero_semaine=1, type_semestre='I', date_suivie=jour,
         prof=monde['profs']['Moustapha'], em=monde['ems']['SEA11'], type_seance_fk=monde['cm'],
         creneau_fk=monde['creneaux']['08h00-09h30'], institution=monde['inst'],
@@ -38,6 +39,9 @@ def test_tous_ajoute_les_seances_non_faites_passees_sans_les_payer(monde):
     user = _prof(monde)
     passe = dt.date.today() - dt.timedelta(days=3)
     _pointage(monde, passe, 'Fait')
+    # Constaté au pointage (pointé après la séance) / jamais pointé.
+    from django.utils import timezone
+    _pointage(monde, passe - dt.timedelta(days=1), 'Non fait', pointe_le=timezone.now())
     _pointage(monde, passe - dt.timedelta(days=1), 'Non fait')
     _pointage(monde, passe - dt.timedelta(days=2), 'Reporté')
     _pointage(monde, dt.date.today() + dt.timedelta(days=5), 'Non fait')   # à venir : absente
@@ -46,7 +50,7 @@ def test_tous_ajoute_les_seances_non_faites_passees_sans_les_payer(monde):
     assert [r['statut'] for r in sans['rows']] == ['Fait']
 
     avec = api(user).get(URL, {'annee_universitaire': ANNEE, 'tous': 1}).data
-    assert sorted(r['statut'] for r in avec['rows']) == ['Fait', 'Non fait', 'Reporté']
+    assert sorted(r['statut'] for r in avec['rows']) == ['En attente', 'Fait', 'Non fait', 'Reporté']
     assert all(r['date_suivie'] for r in avec['rows'])
     assert all(r['id'] and r['creneau'] == '08h00-09h30' for r in avec['rows'])
     # Seule la séance faite est payée.
