@@ -121,9 +121,13 @@ class MonEmploiView(APIView):
             seance_to_label[s['type_seance']] = s['type_seance']
 
         # ── Semaines disponibles pour ce dept/annee ──
+        # Son groupe habituel, et pour l'anglais son groupe d'anglais de
+        # l'année : il y est affecté, pas rattaché (apps/edt/anglais.py).
+        from apps.edt.anglais import groupes_d_anglais_de
         base_qs = Suivie.objects.filter(
+            Q(departement_id=dept_id)
+            | Q(departement_id__in=groupes_d_anglais_de(etudiant, annee_univ)),
             annee_universitaire=annee_univ,
-            departement_id=dept_id,
         )
         semaines_dispo = sorted(
             base_qs.values_list('numero_semaine', flat=True).distinct()

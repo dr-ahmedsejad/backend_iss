@@ -534,3 +534,27 @@ def q_membres(departement_id):
     if est_groupe_anglais(departement_id):
         return Q(affectations_anglais__groupe__departement_id=departement_id)
     return Q(departement_id=departement_id)
+
+
+# ── L'étudiant : son emploi du temps et ses annonces ──────────────────────────
+#
+# Le portail et l'application étudiante lisent le suivi de SON groupe
+# (apps/portail/views.py, MonEmploiView) ; l'annonce « emploi validé » prévient
+# les étudiants des groupes générés (apps/edt/annonces.py). Pour l'anglais, son
+# groupe est son groupe d'anglais de l'année.
+
+def groupes_d_anglais_de(etudiant, annee):
+    """Les groupes d'anglais (ids de Departement) de l'étudiant cette année —
+    un au plus."""
+    from .models import AffectationAnglais
+    return list(AffectationAnglais.objects
+                .filter(etudiant=etudiant, annee_universitaire=annee)
+                .values_list('groupe__departement_id', flat=True))
+
+
+def q_etudiants_des_groupes(departement_ids):
+    """Les étudiants de ces groupes : rattachés, ou affectés pour un groupe
+    d'anglais. À combiner avec `.distinct()`."""
+    from django.db.models import Q
+    ids = list(departement_ids)
+    return Q(departement_id__in=ids) | Q(affectations_anglais__groupe__departement_id__in=ids)

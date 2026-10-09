@@ -95,6 +95,7 @@ def annoncer_semaine(annee, type_semestre, numero, departements):
     {'valides': n, 'modifies': n} — le nombre d'étudiants prévenus.
     """
     from apps.absence.models import Etudiant
+    from .anglais import q_etudiants_des_groupes
     from .models import AnnonceEmploi
 
     premiers, de_nouveau = [], []
@@ -111,13 +112,20 @@ def annoncer_semaine(annee, type_semestre, numero, departements):
 
     periode = _periode(annee, type_semestre, numero)
     bilan = {}
+    # Un étudiant appartient à son groupe habituel ET, pour l'anglais, à son
+    # groupe d'anglais (apps/edt/anglais.py) : s'ils sont annoncés ensemble, il
+    # ne reçoit qu'une notification — « validé » l'emporte.
+    deja = set()
     for cle, groupes, modifie in (('valides', premiers, False), ('modifies', de_nouveau, True)):
         if not groupes:
             bilan[cle] = 0
             continue
-        etudiants = [e.user for e in Etudiant.objects
-                     .filter(departement_id__in=groupes, user__isnull=False, user__is_active=True)
-                     .select_related('user')]
+        cibles = list(Etudiant.objects
+                      .filter(q_etudiants_des_groupes(groupes),
+                              user__isnull=False, user__is_active=True)
+                      .exclude(pk__in=deja).distinct().select_related('user'))
+        deja |= {e.pk for e in cibles}
+        etudiants = [e.user for e in cibles]
         titre, message = _textes(numero, periode, modifie)
         bilan[cle] = notifier(etudiants, titre, message, type='info', lien=LIEN_EMPLOI)
     bilan['enseignants'] = _annoncer_enseignants(annee, type_semestre, numero, premiers, de_nouveau, periode)
