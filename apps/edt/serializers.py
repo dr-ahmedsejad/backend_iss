@@ -116,10 +116,18 @@ def _memes_etudiants(a, b) -> bool:
         — c'est ce pour quoi on les a formés — mais un groupe entier contient
         ses propres sous-groupes.
     """
+    from .anglais import croisement
     from .groupes import est_transversal, sous_groupe, souche
 
     if a.pk is not None and a.pk == b.pk:
         return True
+
+    # Un groupe d'anglais se lit sur ses AFFECTATIONS, pas sur son nom ni sa
+    # filière : il réunit, pour l'anglais seul, des étudiants de plusieurs
+    # groupes habituels (apps/edt/anglais.py).
+    par_l_anglais = croisement(a, b, _memes_etudiants)
+    if par_l_anglais is not None:
+        return par_l_anglais
 
     ga, gb = sous_groupe(a), sous_groupe(b)
 
@@ -167,6 +175,21 @@ def _refuser_chevauchement(mien, voisins):
 
 def _pk(v):
     return getattr(v, 'pk', v)
+
+
+def _refuser_em_du_groupe(departement, em_id, annee, nouvel_em):
+    """L'anglais va sur les groupes d'anglais, et eux ne reçoivent que lui."""
+    from .anglais import motif_refus_em
+    motif = motif_refus_em(departement, em_id, annee, nouvel_em)
+    if motif:
+        raise serializers.ValidationError({'em': motif})
+
+
+def _em_nouveau(attrs, courant):
+    """L'élément est-il posé ou changé par cette écriture ?"""
+    if courant is None:
+        return True
+    return 'em' in attrs and _pk(attrs['em']) != courant.em_id
 
 
 class SeanceTypeSerializer(serializers.ModelSerializer):
@@ -221,6 +244,8 @@ class SeanceTypeSerializer(serializers.ModelSerializer):
             return attrs
 
         _refuser_semestre_hors_parite(champ('em'), grille.type_semestre)
+        _refuser_em_du_groupe(grille.departement, champ('em'),
+                              grille.annee_universitaire, _em_nouveau(attrs, courant))
 
         candidat = {f'{n}_id': champ(n) for n in ('prof', 'em', 'salle', 'type_seance_fk')}
         candidat['type_seance_fk_id'] = champ('type_seance_fk')
@@ -311,6 +336,8 @@ class SeanceReelleSerializer(serializers.ModelSerializer):
         if semaine is None:
             return attrs
         _refuser_semestre_hors_parite(champ('em'), semaine.type_semestre)
+        _refuser_em_du_groupe(dept, champ('em'), semaine.annee_universitaire,
+                              _em_nouveau(attrs, courant))
 
         # Une séance annulée ne dispute sa case à personne.
         annulee = attrs.get('annulee', getattr(courant, 'annulee', False))

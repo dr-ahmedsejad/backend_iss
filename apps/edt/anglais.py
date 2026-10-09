@@ -5,8 +5,9 @@ venue d'Excel. Modèles : `GroupeAnglais`, `AffectationAnglais` (models.py).
 L'étudiant garde son groupe habituel pour tout le reste. Pour l'anglais, il
 est affecté à l'un des DEUX groupes d'anglais de son niveau, pour l'année.
 Le besoin de départ est l'appel (demande du 09/10/2026) : une fiche par groupe
-d'anglais. Cette première étape pose les groupes et l'affectation ; la
-planification et la fiche d'appel les liront ensuite.
+d'anglais. Étape 1 : les groupes et l'affectation ; étape 2 : la
+planification (règles en fin de module, appliquées par serializers.py) ; la
+fiche d'appel les lira ensuite.
 
 Le NIVEAU d'un étudiant est celui de son groupe habituel de l'année
 (`Etudiant.departement`). Un groupe sans niveau n'entre dans aucun niveau :
@@ -143,11 +144,26 @@ def creer_groupe(annee, niveau_id, nom=''):
                 nom=nom, niveau=niveau, annee_universitaire=annee,
                 institution_id=habituels.values_list('institution_id', flat=True).first(),
                 description='Groupe d\'anglais (apps/edt/anglais.py).')
-            return GroupeAnglais.objects.create(departement=dep, niveau=niveau,
-                                                annee_universitaire=annee, rang=rang)
+            groupe = GroupeAnglais.objects.create(departement=dep, niveau=niveau,
+                                                  annee_universitaire=annee, rang=rang)
+            _deleguer(dep, habituels)
+            return groupe
     except IntegrityError:
         # Deux créations simultanées : la contrainte de la base a tranché.
         raise RegleAnglais(f'{niveau.niveau} a déjà ses {MAX_GROUPES} groupes d\'anglais en {annee}.')
+
+
+def _deleguer(departement, habituels):
+    """Qui planifie un groupe du niveau planifie aussi ses groupes d'anglais.
+
+    La délégation EDT est par groupe (`managed_departements`) : sans elle, le
+    directeur des études ne verrait pas le groupe d'anglais qu'on vient de
+    créer pour lui. Les autres délégations se règlent, comme toujours, dans
+    « Paramètres → Permissions EDT »."""
+    from django.contrib.auth import get_user_model
+    for u in (get_user_model().objects
+              .filter(managed_departements__in=habituels).distinct()):
+        u.managed_departements.add(departement)
 
 
 def renommer(groupe, nom):
@@ -160,12 +176,15 @@ def renommer(groupe, nom):
 def references(departement):
     """Ce qui, hors groupes d'anglais, pointe déjà vers ce groupe : séances,
     suivi, grilles… Libellés lisibles, vides si rien."""
+    from django.contrib.auth import get_user_model
     from .models import GroupeAnglais
     trouve = []
     for rel in departement._meta.get_fields():
         if not (rel.is_relation and rel.auto_created and not rel.concrete):
             continue
-        if rel.related_model is GroupeAnglais:
+        # Ses propres lignes, et la délégation EDT posée à la création
+        # (`_deleguer`) : ni l'une ni l'autre n'est un usage.
+        if rel.related_model in (GroupeAnglais, get_user_model()):
             continue
         if rel.many_to_many:
             existe = getattr(departement, rel.get_accessor_name()).exists()
@@ -380,3 +399,115 @@ def importer(annee, rangs, apercu=False):
     if not apercu:
         _ecrire(annee, a_ecrire)
     return {'lignes': lignes, 'bilan': _bilan(lignes)}
+
+
+# ── La planification (étape 2) ────────────────────────────────────────────────
+#
+# Une séance d'anglais se reconnaît à son élément : l'intitulé commence par
+# « Anglais » (les dix-huit EM d'anglais de l'ISS s'appellent tous ainsi, une
+# fiche par filière). Elle se pose sur un groupe d'anglais, dont le créneau
+# n'est pas fixe : chaque placement, dans la grille comme dans la semaine,
+# repasse par les règles ci-dessous (apps/edt/serializers.py).
+
+MOT_ANGLAIS = 'anglais'
+
+
+def est_intitule_anglais(intitule):
+    return plier(intitule).startswith(MOT_ANGLAIS)
+
+
+def groupe_anglais_de(departement):
+    """La ligne GroupeAnglais du groupe, ou None pour un groupe habituel."""
+    from django.core.exceptions import ObjectDoesNotExist
+    if departement is None or departement.pk is None:
+        return None
+    try:
+        return departement.groupe_anglais
+    except ObjectDoesNotExist:
+        return None
+
+
+def croisement(a, b, memes_etudiants):
+    """Les groupes `a` et `b` ont-ils des étudiants en commun, quand l'un des
+    deux est un groupe d'anglais ? None si aucun ne l'est — la règle
+    ordinaire s'applique alors.
+
+    `memes_etudiants` est la règle ordinaire entre deux groupes habituels.
+
+    * Deux groupes d'anglais DIFFÉRENTS ne partagent personne : un étudiant
+      n'a qu'une affectation par année. Intermediate et Advanced peuvent donc
+      avoir cours en même temps.
+    * Un groupe d'anglais et un groupe habituel se croisent dès qu'un étudiant
+      affecté vient de ce groupe — ou d'un groupe qui le recoupe (le groupe
+      entier et ses sous-groupes, un transversal…).
+    * Tant que personne n'est affecté, on suppose le niveau entier : laisser
+      passer serait découvrir la collision le jour où l'affectation arrive.
+    """
+    ga, gb = groupe_anglais_de(a), groupe_anglais_de(b)
+    if ga is None and gb is None:
+        return None
+    if ga is not None and gb is not None:
+        return ga.pk == gb.pk
+    g, autre = (ga, b) if ga is not None else (gb, a)
+    if autre.annee_universitaire != g.annee_universitaire:
+        return False
+    from apps.departement.models import Departement
+    from .groupes import est_transversal
+    habituels = list(Departement.objects
+                     .filter(etudiants__affectations_anglais__groupe=g)
+                     .distinct())
+    if not habituels:
+        return autre.niveau_id == g.niveau_id or est_transversal(autre)
+    return any(memes_etudiants(h, autre) for h in habituels)
+
+
+def _em(em_id):
+    from apps.em.models import EM
+    return (EM.objects.select_related('semestre', 'module_lmd__semestre')
+            .filter(pk=em_id).first()) if em_id else None
+
+
+def _niveau_de_l_em(em):
+    if em.semestre_id and em.semestre.niveau_semestre_id:
+        return em.semestre.niveau_semestre_id
+    if em.module_lmd_id and em.module_lmd.semestre_id:
+        return em.module_lmd.semestre.niveau_semestre_id
+    return None
+
+
+def motif_refus_em(departement, em_id, annee, nouvel_em):
+    """Pourquoi cet élément ne peut pas aller sur ce groupe — ou None.
+
+    * Un groupe d'anglais ne reçoit que l'anglais de SON niveau : il n'existe
+      que pour lui, et ses étudiants ont leurs autres cours ailleurs.
+    * Un groupe HABITUEL d'un niveau qui a ses groupes d'anglais cette année
+      ne reçoit plus d'anglais : ses étudiants figureraient sur deux fiches
+      d'appel. Seulement quand l'élément est posé ou changé (`nouvel_em`) —
+      une séance d'anglais déjà là reste modifiable, le temps de la déplacer.
+    """
+    from .models import GroupeAnglais
+    if departement is None:
+        return None
+    g = groupe_anglais_de(departement)
+    em = _em(em_id)
+    if g is not None:
+        if em is None or not est_intitule_anglais(em.intitule):
+            return (f'« {departement.nom} » est un groupe d\'anglais : il ne reçoit '
+                    'que des séances d\'anglais. Choisissez un élément « Anglais ».')
+        niveau = _niveau_de_l_em(em)
+        if niveau is not None and niveau != g.niveau_id:
+            return (f'{em.code_em} n\'est pas de l\'anglais de {g.niveau.niveau} : '
+                    f'« {departement.nom} » réunit les étudiants de {g.niveau.niveau}.')
+        return None
+    if not (nouvel_em and em is not None and est_intitule_anglais(em.intitule)):
+        return None
+    if not departement.niveau_id:
+        return None
+    noms = list(GroupeAnglais.objects
+                .filter(niveau_id=departement.niveau_id, annee_universitaire=annee)
+                .order_by('rang').values_list('departement__nom', flat=True))
+    if not noms:
+        return None
+    return (f'L\'anglais de {departement.niveau.niveau} se planifie sur ses groupes '
+            f'd\'anglais ({", ".join(noms)}) : les étudiants de « {departement.nom} » '
+            'y sont affectés. Posé ici, il les mettrait sur deux fiches d\'appel.')

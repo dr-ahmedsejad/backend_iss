@@ -591,6 +591,17 @@ class SeanceReelleViewSet(DepartementScopedMixin, AuditMixin, viewsets.ModelView
                     {'detail': f'Groupes hors de votre périmètre : {hors}.'},
                     status=status.HTTP_403_FORBIDDEN)
 
+        # Le partage pose l'élément sur d'autres groupes : l'anglais n'y va que
+        # sur les groupes d'anglais, et eux ne reçoivent que lui
+        # (apps/edt/anglais.py) — la même règle que la saisie d'une case.
+        from apps.departement.models import Departement
+        from .anglais import motif_refus_em
+        for dept in Departement.objects.filter(pk__in=[int(d) for d in demandes]):
+            motif = motif_refus_em(dept, seance.em_id,
+                                   seance.semaine.annee_universitaire, nouvel_em=True)
+            if motif:
+                return Response({'detail': motif}, status=status.HTTP_400_BAD_REQUEST)
+
         resultat = etendre_partage(seance, [int(d) for d in demandes])
         if resultat['cases_occupees']:
             resultat['detail'] = (

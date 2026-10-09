@@ -74,4 +74,7 @@ class DepartementViewSet(AuditMixin, SelectAllMixin, viewsets.ModelViewSet):
                     _etudiants=Count('etudiants', distinct=True),
                     _seances=Count('seances_edt', distinct=True),
                     _cases=Count('grilles_edt__seances', distinct=True))
-                .filter(Q(_etudiants__gt=0) | Q(_seances__gt=0) | Q(_cases__gt=0)))
+                # Un groupe d'anglais n'a aucun étudiant RATTACHÉ — ils y sont
+                # affectés (apps/edt/anglais.py) : on le garde toujours.
+                .filter(Q(_etudiants__gt=0) | Q(_seances__gt=0) | Q(_cases__gt=0)
+                        | Q(groupe_anglais__isnull=False)))
