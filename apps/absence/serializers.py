@@ -26,6 +26,17 @@ class EtudiantSerializer(serializers.ModelSerializer):
         model  = Etudiant
         fields = '__all__'
 
+    def validate_departement(self, departement):
+        # Un groupe d'anglais réunit des étudiants pour l'anglais SEUL : ils y
+        # sont affectés (apps/edt/anglais.py) et gardent leur groupe habituel.
+        # En faire le groupe habituel d'un étudiant le sortirait de tous ses
+        # autres cours.
+        if departement is not None and hasattr(departement, 'groupe_anglais'):
+            raise serializers.ValidationError(
+                f"« {departement.nom} » est un groupe d'anglais : l'étudiant y est "
+                "affecté depuis l'écran « Groupes d'anglais », il garde son groupe habituel.")
+        return departement
+
     def _is_diplome(self, obj):
         """Utilise l'annotation Exists (_est_diplome) posée par EtudiantViewSet →
         pas de requête. Repli (serializer utilisé ailleurs) : une requête ponctuelle,

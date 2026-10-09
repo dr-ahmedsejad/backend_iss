@@ -448,3 +448,77 @@ class AnnonceEmploi(models.Model):
 
     def __str__(self):
         return f'{self.departement} S{self.numero_semaine} ({self.nb_annonces} annonce(s))'
+
+
+# ── Groupes d'anglais ─────────────────────────────────────────────────────────
+
+class GroupeAnglais(models.Model):
+    """
+    Un groupe d'ANGLAIS : un groupe (`Departement`) de son niveau, sans
+    filière, qui réunit pour l'anglais seul des étudiants venus de plusieurs
+    groupes habituels — toutes filières du niveau confondues.
+
+    L'étudiant garde son groupe habituel (`Etudiant.departement`) pour tout le
+    reste ; il est AFFECTÉ en plus à l'un des groupes d'anglais de son niveau,
+    pour l'année (`AffectationAnglais`). Ce qui pousse à les créer, c'est
+    l'appel : une fiche de présence par groupe d'anglais (demande du
+    09/10/2026). Le nom du groupe est libre — « Intermediate »,
+    « Pre-intermediate »… —, seul compte qu'il y en ait deux au plus.
+
+    Deux groupes au plus par niveau et par année : `rang` vaut 1 ou 2, unique
+    pour (niveau, année). Le niveau et l'année sont recopiés du groupe pour que
+    la BASE garantisse la limite, pas seulement l'écran.
+
+    C'est CETTE table qui fait d'un groupe un groupe d'anglais : `Departement`
+    n'a pas changé. Voir apps/edt/anglais.py.
+    """
+
+    departement = models.OneToOneField('departement.Departement',
+                                       on_delete=models.CASCADE,
+                                       related_name='groupe_anglais')
+    niveau = models.ForeignKey('parametres.Niveau', on_delete=models.PROTECT,
+                               related_name='groupes_anglais')
+    annee_universitaire = models.CharField(max_length=20)
+    rang = models.PositiveSmallIntegerField()
+    cree_le = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'edt_groupe_anglais'
+        ordering = ['annee_universitaire', 'niveau__niveau', 'rang']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['niveau', 'annee_universitaire', 'rang'],
+                name='uniq_edt_groupe_anglais_rang'),
+            models.CheckConstraint(
+                check=models.Q(rang__in=[1, 2]),
+                name='edt_groupe_anglais_deux_au_plus'),
+        ]
+
+    def __str__(self):
+        return f'{self.departement.nom} ({self.annee_universitaire})'
+
+
+class AffectationAnglais(models.Model):
+    """
+    L'étudiant, pour l'anglais de l'année, est dans CE groupe d'anglais.
+
+    Une seule affectation par étudiant et par année ; elle se change en cours
+    d'année. Elle ne touche pas au groupe habituel de l'étudiant.
+    """
+
+    etudiant = models.ForeignKey('absence.Etudiant', on_delete=models.CASCADE,
+                                 related_name='affectations_anglais')
+    groupe = models.ForeignKey(GroupeAnglais, on_delete=models.CASCADE,
+                               related_name='affectations')
+    annee_universitaire = models.CharField(max_length=20)
+    modifiee_le = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'edt_affectation_anglais'
+        constraints = [
+            models.UniqueConstraint(fields=['etudiant', 'annee_universitaire'],
+                                    name='uniq_edt_affectation_anglais'),
+        ]
+
+    def __str__(self):
+        return f'{self.etudiant} → {self.groupe}'
