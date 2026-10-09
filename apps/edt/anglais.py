@@ -511,3 +511,26 @@ def motif_refus_em(departement, em_id, annee, nouvel_em):
     return (f'L\'anglais de {departement.niveau.niveau} se planifie sur ses groupes '
             f'd\'anglais ({", ".join(noms)}) : les étudiants de « {departement.nom} » '
             'y sont affectés. Posé ici, il les mettrait sur deux fiches d\'appel.')
+
+
+# ── L'appel (étape 3) ─────────────────────────────────────────────────────────
+#
+# Un groupe d'anglais n'a aucun étudiant RATTACHÉ (`Etudiant.departement`) :
+# ses membres sont ses AFFECTÉS. La fiche de présence, l'application de
+# l'enseignant (apps/absence/liste_appel.py) et la saisie des absences
+# (filtre `departement` des étudiants) les lisent ici.
+
+def est_groupe_anglais(departement_id):
+    from .models import GroupeAnglais
+    return bool(departement_id) and GroupeAnglais.objects.filter(
+        departement_id=departement_id).exists()
+
+
+def q_membres(departement_id):
+    """Les étudiants d'un groupe : ses affectés pour un groupe d'anglais, ses
+    rattachés sinon. Une affectation par étudiant et par année, et un groupe
+    d'anglais n'a qu'une année : la jointure ne double personne."""
+    from django.db.models import Q
+    if est_groupe_anglais(departement_id):
+        return Q(affectations_anglais__groupe__departement_id=departement_id)
+    return Q(departement_id=departement_id)

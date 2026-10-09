@@ -33,6 +33,9 @@ Rien ici n'ÉCRIT : les inscriptions sont lues, jamais modifiées.
 """
 SOURCE_INSCRIPTIONS = 'inscriptions'
 SOURCE_GROUPE = 'groupe'
+# Groupe d'anglais : la liste est son AFFECTATION, faite à la main par la
+# scolarité (apps/edt/anglais.py) — ni inscriptions à lire, ni repli.
+SOURCE_AFFECTATION = 'affectation'
 
 
 def _etudiants_inscrits(em_id, annee):
@@ -117,6 +120,15 @@ def liste_appel(departement_id, em_id, annee) -> dict:
     de toute la liste.
     """
     from apps.absence.models import Etudiant
+    from apps.edt.anglais import est_groupe_anglais, q_membres
+
+    if est_groupe_anglais(departement_id):
+        # Ses étudiants, toutes filières, sont ceux qu'on y a affectés. Les
+        # inscriptions ne départagent rien ici : chaque filière a sa fiche EM
+        # « Anglais », la séance n'en porte qu'une.
+        return {'etudiants': list(Etudiant.objects.filter(q_membres(departement_id))
+                                  .order_by('matricule')),
+                'rattaches': [], 'dettes': [], 'source': SOURCE_AFFECTATION}
 
     du_groupe = Etudiant.objects.filter(departement_id=departement_id)
 

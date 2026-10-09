@@ -182,7 +182,10 @@ class EtudiantFilter(df_filters.FilterSet):
     genre    = df_filters.CharFilter(field_name='genre',    lookup_expr='exact')
     statut   = df_filters.CharFilter(field_name='statut',   lookup_expr='exact')
     filiere  = df_filters.NumberFilter(field_name='filiere', lookup_expr='exact')
-    departement = df_filters.NumberFilter(field_name='departement', lookup_expr='exact')
+    # Les étudiants d'un groupe — ses AFFECTÉS pour un groupe d'anglais, qui
+    # n'a aucun étudiant rattaché (apps/edt/anglais.py) : la saisie des
+    # absences d'une séance d'anglais lit sa liste ici.
+    departement = df_filters.NumberFilter(method='_membres_du_groupe')
 
     # Note : les 3 filtres `inscrit_*` ci-dessous sont déclarés pour la doc/tests
     # mais l'application réelle se fait dans EtudiantViewSet.get_queryset() via
@@ -195,6 +198,10 @@ class EtudiantFilter(df_filters.FilterSet):
     def _noop_marker(self, queryset, name, value):
         # No-op — la jointure cohérente est appliquée par EtudiantViewSet.get_queryset().
         return queryset
+
+    def _membres_du_groupe(self, queryset, name, value):
+        from apps.edt.anglais import q_membres
+        return queryset.filter(q_membres(int(value)))
 
     class Meta:
         model  = Etudiant
