@@ -39,3 +39,38 @@ def ems_de_l_annee(annee, type_semestre=None):
     # Les filiations OU (filière / module LMD) dupliquent des lignes : on repart
     # des seuls identifiants, pour que les sommes (CM, TD…) restent justes.
     return EM.objects.filter(pk__in=list(qs.values_list('pk', flat=True).distinct()))
+
+
+# ── La filière d'un EM (filtre de l'avancement par EM) ────────────────────────
+#
+# Même chaîne que partout ailleurs (EMSerializer, attestation, vacations) : la
+# filière de l'EM, sinon celle de son module LMD, sinon celle de son groupe
+# vestigial. 56 EM n'ont pas de filière propre à l'ISS.
+
+def q_filiere(filiere_id):
+    """Les EM de cette filière, selon la chaîne ci-dessus."""
+    return (Q(filiere_id=filiere_id)
+            | Q(filiere__isnull=True, module_lmd__filiere_id=filiere_id)
+            | Q(filiere__isnull=True, module_lmd__filiere__isnull=True,
+                departement__filiere_id=filiere_id))
+
+
+def filiere_de(em):
+    if em.filiere_id:
+        return em.filiere
+    if em.module_lmd_id and em.module_lmd.filiere_id:
+        return em.module_lmd.filiere
+    if em.departement_id and em.departement.filiere_id:
+        return em.departement.filiere
+    return None
+
+
+def filieres_de_l_annee(annee, type_semestre=None):
+    """Les filières qui ont des EM dans l'année — la liste du filtre."""
+    vues = {}
+    for em in (ems_de_l_annee(annee, type_semestre)
+               .select_related('filiere', 'module_lmd__filiere', 'departement__filiere')):
+        f = filiere_de(em)
+        if f is not None:
+            vues[f.pk] = f
+    return sorted(vues.values(), key=lambda f: f.code or '')

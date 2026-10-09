@@ -77,17 +77,23 @@ def _format_depts_compact(sp):
     return ' / '.join(parts)
 
 
-def _compute_avancement_em(annee, type_semestre, semestre_id=None):
+def _compute_avancement_em(annee, type_semestre, semestre_id=None, filiere_id=None):
     """
     Calcule l'avancement complet (planification / realisation / %) pour tous les EMs.
     Utilise Suivie (toutes les seances = realisees) et MAX inter-departements atomiques.
+
+    `filiere_id` (optionnel) : les seuls EM de cette filiere — filtres AVANT le
+    dedoublonnage par code, pour que la fiche retenue soit celle de la filiere.
+    Sans lui, le calcul est inchange.
     """
     # EMs de l'annee : derives des groupes (filiere + niveau), et non plus du
     # `departement` VESTIGIAL de l'EM — voir apps/avancement/ems_annee.py.
-    from .ems_annee import ems_de_l_annee
+    from .ems_annee import ems_de_l_annee, q_filiere
     base_em = ems_de_l_annee(annee, type_semestre).select_related('semestre')
     if semestre_id:
         base_em = base_em.filter(semestre_id=semestre_id)
+    if filiere_id:
+        base_em = base_em.filter(q_filiere(filiere_id))
 
     # Dedoublonner par code_em (prendre le premier ID)
     first_ids = (
@@ -295,9 +301,37 @@ class AvancementEMView(APIView):
         annee         = request.query_params.get('annee_universitaire')
         type_semestre = request.query_params.get('type_semestre')  # 'P' ou 'I'
         semestre_id   = request.query_params.get('semestre_id')    # optionnel
+        filiere_id    = _filiere_param(request)                      # optionnel
         if not annee or not type_semestre:
             return Response({'error': 'annee_universitaire et type_semestre requis.'}, status=400)
-        return Response(_compute_avancement_em(annee, type_semestre, semestre_id))
+        return Response(_compute_avancement_em(annee, type_semestre, semestre_id, filiere_id))
+
+
+def _filiere_param(request):
+    """`?filiere=<id>` : un entier, sinon ignoré."""
+    v = (request.query_params.get('filiere') or '').strip()
+    return int(v) if v.isdigit() else None
+
+
+class AvancementEMFilieresView(APIView):
+    """GET /api/v1/avancement/em/filieres/?annee_universitaire=&type_semestre=
+
+    Les filières qui ont des EM dans l'année : la liste du filtre de
+    l'avancement par EM. Sous le droit `avancement` — la liste des filières du
+    référentiel demande `scolarite`, que le lecteur de l'avancement n'a pas
+    forcément.
+    """
+    permission_classes = [RBACPermission]
+    required_module    = 'avancement'
+
+    def get(self, request):
+        from .ems_annee import filieres_de_l_annee
+        annee = request.query_params.get('annee_universitaire')
+        if not annee:
+            return Response({'error': 'annee_universitaire requis.'}, status=400)
+        return Response([{'id': f.pk, 'code': f.code, 'intitule': f.intitule_fr}
+                         for f in filieres_de_l_annee(
+                             annee, request.query_params.get('type_semestre') or None)])
 
 
 class AvancementProfsView(APIView):
@@ -1428,10 +1462,11 @@ class AvancementEMPDFView(APIView):
         annee         = request.query_params.get('annee_universitaire')
         type_semestre = request.query_params.get('type_semestre')
         semestre_id   = request.query_params.get('semestre_id')
+        filiere_id    = _filiere_param(request)
         if not annee or not type_semestre:
             return Response({'error': 'annee_universitaire et type_semestre requis.'}, status=400)
 
-        items = _compute_avancement_em(annee, type_semestre, semestre_id)
+        items = _compute_avancement_em(annee, type_semestre, semestre_id, filiere_id)
         if not items:
             return Response({'error': 'Aucune donnée.'}, status=404)
 
@@ -1447,12 +1482,18 @@ class AvancementEMPDFView(APIView):
         elif type_semestre == 'I':
             semestre_label = 'Semestres impairs'
 
+        if filiere_id:
+            from apps.scolarite.models import Filiere
+            filiere = Filiere.objects.filter(pk=filiere_id).first()
+            if filiere is not None:
+                semestre_label = f'{semestre_label} — {filiere.code}'
+
         context = {
             'items':          items,
             'semestre_label': semestre_label,
             'type_semestre':  type_semestre,
         }
-        suffix   = semestre_label.replace(' ', '_')
+        suffix   = semestre_label.replace(' — ', '_').replace(' ', '_')
         filename = f"avancement_em_{suffix}.pdf"
         return _render_pdf('avancement_em_pdf.html', context, filename, orientation='Landscape')
 

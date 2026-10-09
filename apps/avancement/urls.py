@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    AvancementEMView, AvancementProfsView, AvancementProfDetailView,
+    AvancementEMView, AvancementEMFilieresView, AvancementProfsView, AvancementProfDetailView,
     ChargeProfsPermanantsView, ChargePermanentsMensuelView,
     RepartitionChargesView,
     SuiviProfView, SuiviPointageProfDetailView,
@@ -13,6 +13,8 @@ from .views import (
 urlpatterns = [
     # ── Données JSON ─────────────────────────────────────────────────────────
     path('em/',                       AvancementEMView.as_view(),               name='avancement-em'),
+    # Les filières du filtre de l'avancement par EM (sous le droit `avancement`).
+    path('em/filieres/',              AvancementEMFilieresView.as_view(),       name='avancement-em-filieres'),
     path('profs/',                    AvancementProfsView.as_view(),            name='avancement-profs'),
     path('profs/detail/',             AvancementProfDetailView.as_view(),       name='avancement-profs-detail'),
     path('charge-permanents/',        ChargeProfsPermanantsView.as_view(),      name='charge-permanents'),
