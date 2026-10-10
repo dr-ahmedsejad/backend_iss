@@ -78,9 +78,17 @@ class NoteEtudiantSerializer(serializers.Serializer):
     def get_note_exam(self, obj):
         return self._notes_map(obj).get('EXAM')
 
+    @staticmethod
+    def _dernier_resultat(obj):
+        """Le résultat le plus récent de l'élément (l'`id` le plus grand), lu
+        dans le préchargement `prefetch_related('resultats')` de la vue.
+        `order_by('-id').first()` le contournait et relançait une requête par
+        élément ; la règle « le plus grand id » est la même."""
+        return max(obj.resultats.all(), key=lambda r: r.id, default=None)
+
     def get_note_finale(self, obj):
         try:
-            r = obj.resultats.order_by('-id').first()
+            r = self._dernier_resultat(obj)
             return float(r.note_finale) if r else None
         except Exception:
             return None
@@ -124,7 +132,7 @@ class NoteEtudiantSerializer(serializers.Serializer):
         if obj.em and obj.em.code_em in cmap:
             return cmap[obj.em.code_em]
         try:
-            r = obj.resultats.order_by('-id').first()
+            r = self._dernier_resultat(obj)
             return r.est_valide if r else False
         except Exception:
             return False
