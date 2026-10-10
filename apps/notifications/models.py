@@ -77,6 +77,9 @@ class AppareilPush(models.Model):
     jeton      = models.CharField(max_length=512, unique=True)
     plateforme = models.CharField(max_length=20, default='android')
     langue     = models.CharField(max_length=5, default='fr')
+    # App d'où vient le jeton : '' = anciennes apps ISS (étudiant, enseignant :
+    # la clé suit le rôle) ; 'gp' = app Groupe Polytechnique (sa propre clé).
+    projet     = models.CharField(max_length=20, blank=True, default='')
     cree_le    = models.DateTimeField(auto_now_add=True)
     vu_le      = models.DateTimeField(auto_now=True)
 

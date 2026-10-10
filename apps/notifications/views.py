@@ -1,7 +1,8 @@
 from django.db.models import Exists, OuterRef, Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -80,12 +81,47 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             return Response(status=status.HTTP_204_NO_CONTENT)
         plateforme = str(request.data.get('plateforme') or 'android')[:20]
         langue = 'ar' if str(request.data.get('langue') or '').startswith('ar') else 'fr'
+        # App Groupe Polytechnique : son propre projet Firebase (voir AppareilPush.projet).
+        projet = 'gp' if str(request.data.get('projet') or '') == 'gp' else ''
         # Un jeton = un appareil : s'il passe à un autre compte, il le suit.
         _, cree = AppareilPush.objects.update_or_create(
             jeton=jeton, defaults={'user_id': request.user.pk, 'plateforme': plateforme,
-                                   'langue': langue})
+                                   'langue': langue, 'projet': projet})
         return Response({'detail': 'Appareil inscrit.'},
                         status=status.HTTP_201_CREATED if cree else status.HTTP_200_OK)
+
+    # ── Sans session : l'app Groupe Polytechnique n'a qu'une session à la fois,
+    # mais reste inscrite auprès de chaque établissement où l'on s'est connecté.
+    # Le jeton FCM (long, connu du seul téléphone et des serveurs) fait foi.
+    # Réponse 204 dans tous les cas : rien à apprendre en interrogeant.
+    @action(detail=False, methods=['post'], url_path='appareils/oublier',
+            permission_classes=[AllowAny], authentication_classes=[],
+            throttle_classes=[AnonRateThrottle])
+    def oublier_appareil(self, request):
+        """Session expirée, « Ce n'est pas moi » : ce téléphone ne reçoit plus
+        les notifications de CET établissement. Corps : {"jeton"}."""
+        jeton = str(request.data.get('jeton') or '').strip()
+        if not jeton or len(jeton) > 512:
+            return Response({'detail': 'Jeton requis.'}, status=status.HTTP_400_BAD_REQUEST)
+        AppareilPush.objects.filter(jeton=jeton).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['post'], url_path='appareils/remplacer',
+            permission_classes=[AllowAny], authentication_classes=[],
+            throttle_classes=[AnonRateThrottle])
+    def remplacer_jeton(self, request):
+        """Firebase a renouvelé le jeton du téléphone : l'inscription suit le
+        nouveau, sans session. Corps : {"ancien", "nouveau"}."""
+        ancien = str(request.data.get('ancien') or '').strip()
+        nouveau = str(request.data.get('nouveau') or '').strip()
+        if not ancien or not nouveau or len(ancien) > 512 or len(nouveau) > 512:
+            return Response({'detail': 'Jetons requis.'}, status=status.HTTP_400_BAD_REQUEST)
+        appareil = AppareilPush.objects.filter(jeton=ancien).first()
+        if appareil is not None and ancien != nouveau:
+            AppareilPush.objects.filter(jeton=nouveau).exclude(pk=appareil.pk).delete()
+            appareil.jeton = nouveau
+            appareil.save(update_fields=['jeton'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=['post'], url_path='tout-lire')
     def tout_lire(self, request):

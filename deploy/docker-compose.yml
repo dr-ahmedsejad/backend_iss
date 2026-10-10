@@ -191,6 +191,9 @@ services:
       FIREBASE_CREDENTIALS: ${FIREBASE_CREDENTIALS:-/app/secrets/firebase-iss.json}
       # App enseignant (autre projet Firebase) : sa clé, même dossier.
       FIREBASE_CREDENTIALS_ENSEIGNANT: ${FIREBASE_CREDENTIALS_ENSEIGNANT:-/app/secrets/firebase-iss-enseignant.json}
+      # App Groupe Polytechnique : la clé d'envoi de l'ISS dans le projet commun
+      # (absente → envoi vers cette app désactivé, le reste inchangé).
+      FIREBASE_CREDENTIALS_GP: ${FIREBASE_CREDENTIALS_GP:-/app/secrets/firebase-gp-iss.json}
     volumes:
       # Bind-mount du dossier media local : les fichiers existants sont visibles
       # immediatement, et tout nouvel upload depuis SIGA apparait sur ton disque.

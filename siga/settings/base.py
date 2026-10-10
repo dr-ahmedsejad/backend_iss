@@ -327,6 +327,8 @@ MIRROR_WRITE_ALLOWLIST = [
     r'^/api/v1/notifications/\d+/lire/$',                  # → notifications_lecture
     r'^/api/v1/notifications/tout-lire/$',
     r'^/api/v1/notifications/appareils/$',                 # → notifications_appareil (push)
+    r'^/api/v1/notifications/appareils/oublier/$',     # → notifications_appareil (sans session)
+    r'^/api/v1/notifications/appareils/remplacer/$',   # → notifications_appareil (sans session)
 ]
 
 # ── Ce que la publication ne transporte PAS ───────────────────────────────────
@@ -401,6 +403,13 @@ SYNC_TIMEOUT_S    = config('SYNC_TIMEOUT_S',   default=900, cast=int)
 FIREBASE_CREDENTIALS = config('FIREBASE_CREDENTIALS', default='')
 # App enseignant : autre projet Firebase, donc sa propre clé (même règle).
 FIREBASE_CREDENTIALS_ENSEIGNANT = config('FIREBASE_CREDENTIALS_ENSEIGNANT', default='')
+# App Groupe Polytechnique (une app pour tous les établissements, un seul projet
+# Firebase) : la clé d'envoi PROPRE à cet établissement dans ce projet (même
+# règle : secrets/, hors git). Ses téléphones reçoivent le sigle en tête du
+# titre (« ISS — … ») et le code de l'établissement dans les données.
+FIREBASE_CREDENTIALS_GP = config('FIREBASE_CREDENTIALS_GP', default='')
+ETABLISSEMENT_CODE  = config('ETABLISSEMENT_CODE',  default='iss')
+ETABLISSEMENT_SIGLE = config('ETABLISSEMENT_SIGLE', default='ISS')
 BACKUP_OPENSSL_BIN   = config('BACKUP_OPENSSL_BIN',   default='openssl')
 # Retention des backups manuels chiffres (jours). Le cleanup tourne via cron.
 BACKUP_MANUAL_RETENTION_DAYS = config(

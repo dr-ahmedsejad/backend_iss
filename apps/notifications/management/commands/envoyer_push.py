@@ -18,6 +18,7 @@ plusieurs minutes. La base n'est lue et écrite que par le fil principal.
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import IntegrityError
 from django.utils import timezone
@@ -32,12 +33,18 @@ ENVOIS_SIMULTANES = 10
 
 def _envoyer(job):
     """Un envoi (dans un fil, sans base) : 'ok', 'invalide' ou le message d'erreur."""
-    n, appareil, cle = job
+    n, appareil, cle, profil = job
+    titre = n.titre
+    donnees = {'notification_id': n.pk, 'type': n.type, 'lien': n.lien}
+    if appareil.projet == 'gp':
+        # Une app pour tous les établissements : le sigle en tête du titre, et
+        # l'établissement (et le profil) pour que le toucher ouvre le bon espace.
+        titre = f'{settings.ETABLISSEMENT_SIGLE} — {n.titre}'
+        donnees.update(etablissement=settings.ETABLISSEMENT_CODE, profil=profil)
     try:
         # Pas de version arabe des notifications à l'ISS (le modèle n'en porte
         # pas, contrairement au privé) : le français pour tous.
-        push.envoyer(appareil.jeton, n.titre, n.message,
-                     {'notification_id': n.pk, 'type': n.type, 'lien': n.lien}, chemin=cle)
+        push.envoyer(appareil.jeton, titre, n.message, donnees, chemin=cle)
         return 'ok'
     except push.JetonInvalide:
         return 'invalide'
@@ -63,6 +70,8 @@ class Command(BaseCommand):
             cles['etudiant'] = None
         if push.cle_enseignant() and push.configure(push.cle_enseignant()):
             cles['enseignant'] = push.cle_enseignant()
+        if push.cle_gp() and push.configure(push.cle_gp()):
+            cles['gp'] = push.cle_gp()
         if not cles:
             self.stdout.write('Push désactivé (FIREBASE_CREDENTIALS absent ou illisible).')
             return
@@ -89,7 +98,10 @@ class Command(BaseCommand):
                 continue
             app = 'enseignant' if n.destinataire_id in enseignants else 'etudiant'
             cle = cles.get(app)
-            cibles = appareils.get(n.destinataire_id, []) if app in cles else []
+            # La clé suit l'app du téléphone : Groupe Polytechnique (projet 'gp')
+            # ou, pour les anciennes apps, le rôle du destinataire.
+            cibles = [a for a in appareils.get(n.destinataire_id, [])
+                      if (('gp' in cles) if a.projet == 'gp' else (app in cles))]
             deja_lue = n.lue or (n.pk, n.destinataire_id) in lues_en_ligne
             if essai:
                 self.stdout.write(f'#{n.pk} → user #{n.destinataire_id} : {len(cibles)} appareil(s)'
@@ -105,10 +117,12 @@ class Command(BaseCommand):
             a_envoyer.append((n, trace, cibles, cle))
 
         # Envois en parallèle (sans base) ; résultats dans l'ordre des jobs.
-        jobs = [(n, a, cle) for n, _, cibles, cle in a_envoyer for a in cibles]
+        jobs = [(n, a, cles['gp'] if a.projet == 'gp' else cle,
+                 'enseignant' if n.destinataire_id in enseignants else 'etudiant')
+                for n, _, cibles, cle in a_envoyer for a in cibles]
         with ThreadPoolExecutor(max_workers=ENVOIS_SIMULTANES) as pool:
             resultats = list(pool.map(_envoyer, jobs))
-        par_appareil = {(id(n), a.pk): r for (n, a, _), r in zip(jobs, resultats)}
+        par_appareil = {(id(n), a.pk): r for (n, a, _, _), r in zip(jobs, resultats)}
 
         # Bilan par notification (fil principal : base).
         for n, trace, cibles, _ in a_envoyer:

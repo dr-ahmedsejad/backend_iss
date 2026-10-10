@@ -51,6 +51,11 @@ def cle_enseignant():
     return getattr(settings, 'FIREBASE_CREDENTIALS_ENSEIGNANT', '')
 
 
+def cle_gp():
+    """App Groupe Polytechnique : la clé de cet établissement dans le projet commun."""
+    return getattr(settings, 'FIREBASE_CREDENTIALS_GP', '')
+
+
 def _cle(chemin=None):
     with open(chemin or cle_etudiant(), encoding='utf-8') as f:
         return json.load(f)
