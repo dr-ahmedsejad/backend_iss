@@ -5,5 +5,7 @@
 # cloche part vers le téléphone de son destinataire.
 # Sans clé Firebase (secrets/firebase-iss.json), la commande répond
 # « Push désactivé » et ne fait rien.
+# flock -n : si l'envoi précédent n'est pas fini (beaucoup de téléphones),
+# celui-ci est sauté — jamais deux envois en même temps.
 # ════════════════════════════════════════════════════════════════════
-*/2 * * * * cd /opt/iss/backend_iss/deploy && docker compose exec -T backend python manage.py envoyer_push >> $HOME/logs/iss-push.log 2>&1
+*/2 * * * * cd /opt/iss/backend_iss/deploy && flock -n /tmp/iss-push.lock docker compose exec -T backend python manage.py envoyer_push >> $HOME/logs/iss-push.log 2>&1
