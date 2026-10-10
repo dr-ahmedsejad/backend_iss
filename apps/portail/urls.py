@@ -2,6 +2,7 @@ from django.urls import path
 
 from .enseignant import ProfilEnseignantView
 from .views_accueil import AccueilView
+from .accueil_enseignant import AccueilEnseignantView
 from .views import (
     MonProfilView, MonEmploiView, MesAbsencesView,
     MesNotesView, MesResultatsView,
@@ -27,6 +28,7 @@ urlpatterns = [
     path('documents/<int:pk>/telecharger/',      TelechargerDocumentView.as_view(),   name='portail-doc-dl'),
     path('reclamations/',                   MesReclamationsView.as_view(),    name='portail-reclamations'),
     path('reclamations/<int:pk>/',          DetailReclamationView.as_view(),  name='portail-reclamation-detail'),
+    path('enseignant/accueil/',            AccueilEnseignantView.as_view(),  name='portail-enseignant-accueil'),
     path('enseignant/profil/',              ProfilEnseignantView.as_view(),   name='portail-enseignant-profil'),
     path('reclamations/periodes-actives/',  PeriodesReclamationActivesView.as_view(), name='portail-reclamations-periodes'),
 ]
