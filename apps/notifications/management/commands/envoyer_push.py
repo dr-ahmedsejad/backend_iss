@@ -10,7 +10,12 @@ Chaque notification n'est traitée qu'une fois (PushEnvoye) : la ligne est prise
 AVANT l'envoi (deux exécutions qui se chevauchent ne poussent pas deux fois), et
 rendue si l'envoi échoue pour une raison passagère (réseau), pour réessayer.
 Une notification déjà lue, ou plus ancienne que la fenêtre, n'est pas poussée.
+
+Débit : les envois partent par 10 en parallèle (fils), chacun sur sa
+connexion réutilisée — 1000 téléphones en quelques secondes au lieu de
+plusieurs minutes. La base n'est lue et écrite que par le fil principal.
 """
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand
@@ -20,6 +25,24 @@ from django.utils import timezone
 from apps.authentication.models import CustomUser
 from apps.notifications import push
 from apps.notifications.models import AppareilPush, Notification, NotificationLecture, PushEnvoye
+
+
+ENVOIS_SIMULTANES = 10
+
+
+def _envoyer(job):
+    """Un envoi (dans un fil, sans base) : 'ok', 'invalide' ou le message d'erreur."""
+    n, appareil, cle = job
+    try:
+        # Pas de version arabe des notifications à l'ISS (le modèle n'en porte
+        # pas, contrairement au privé) : le français pour tous.
+        push.envoyer(appareil.jeton, n.titre, n.message,
+                     {'notification_id': n.pk, 'type': n.type, 'lien': n.lien}, chemin=cle)
+        return 'ok'
+    except push.JetonInvalide:
+        return 'invalide'
+    except Exception as e:  # réseau, quota : on réessaiera
+        return f'{e}' or e.__class__.__name__
 
 
 class Command(BaseCommand):
@@ -60,6 +83,7 @@ class Command(BaseCommand):
                           .values_list('pk', flat=True))
 
         envoyees = sans_appareil = erreurs = 0
+        a_envoyer = []   # (notification, sa trace PushEnvoye, ses appareils, clé)
         for n in notifs:
             if (n.pk, n.created_at) in deja:
                 continue
@@ -78,21 +102,29 @@ class Command(BaseCommand):
             if deja_lue or not cibles:
                 sans_appareil += 1
                 continue
-            ok = 0
+            a_envoyer.append((n, trace, cibles, cle))
+
+        # Envois en parallèle (sans base) ; résultats dans l'ordre des jobs.
+        jobs = [(n, a, cle) for n, _, cibles, cle in a_envoyer for a in cibles]
+        with ThreadPoolExecutor(max_workers=ENVOIS_SIMULTANES) as pool:
+            resultats = list(pool.map(_envoyer, jobs))
+        par_appareil = {(id(n), a.pk): r for (n, a, _), r in zip(jobs, resultats)}
+
+        # Bilan par notification (fil principal : base).
+        for n, trace, cibles, _ in a_envoyer:
+            ok = echecs = 0
             for a in cibles:
-                # Pas de version arabe des notifications à l'ISS (le modèle
-                # n'en porte pas, contrairement au privé) : le français pour tous.
-                try:
-                    push.envoyer(a.jeton, n.titre, n.message,
-                                 {'notification_id': n.pk, 'type': n.type, 'lien': n.lien}, chemin=cle)
+                r = par_appareil[(id(n), a.pk)]
+                if r == 'ok':
                     ok += 1
-                except push.JetonInvalide:
+                elif r == 'invalide':
                     a.delete()  # app désinstallée / jeton périmé
-                except Exception as e:  # réseau, quota : on réessaiera
+                else:
+                    echecs += 1
                     erreurs += 1
-                    self.stderr.write(f'#{n.pk} : {e}')
-            if ok == 0 and erreurs:
-                trace.delete()
+                    self.stderr.write(f'#{n.pk} : {r}')
+            if ok == 0 and echecs:
+                trace.delete()  # rendue : réessayée au prochain passage
             else:
                 trace.nb_appareils = ok
                 trace.save(update_fields=['nb_appareils'])
