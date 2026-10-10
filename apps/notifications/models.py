@@ -29,6 +29,12 @@ class Notification(models.Model):
     class Meta:
         db_table = 'notifications_notification'
         ordering = ['-created_at']
+        indexes = [
+            # Cloche : notifications non lues d'un utilisateur.
+            models.Index(fields=['destinataire', 'lue'], name='notif_dest_lue_idx'),
+            # envoyer_push : notifications récentes.
+            models.Index(fields=['created_at'], name='notif_created_idx'),
+        ]
 
     def __str__(self):
         return f'[{self.type}] {self.titre} → {self.destinataire}'
@@ -95,6 +101,10 @@ class PushEnvoye(models.Model):
 
     class Meta:
         db_table = 'notifications_push_envoye'
+        indexes = [
+            # envoyer_push : déjà traitées depuis…
+            models.Index(fields=['notification_le'], name='push_envoye_le_idx'),
+        ]
         constraints = [
             models.UniqueConstraint(fields=['notification_id', 'notification_le'],
                                     name='notifications_push_envoye_unique'),
