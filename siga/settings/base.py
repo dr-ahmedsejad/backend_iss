@@ -441,7 +441,10 @@ AXES_LOCKOUT_PARAMETERS   = [['username', 'ip_address']]
 AXES_CLIENT_IP_CALLABLE   = 'core.ip_client.adresse_client'
 # Réessayer pendant le blocage ne le prolonge pas.
 AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT = False
-LOGIN_ECHECS_PAR_IP       = config('LOGIN_ECHECS_PAR_IP', default=20, cast=int)
+# 300 : des centaines d'étudiants partagent l'adresse du campus ; à 20,
+# quelques fautes de frappe bloquaient tout le monde 15 min. Le blocage
+# par compte (5 échecs) reste la vraie protection.
+LOGIN_ECHECS_PAR_IP       = config('LOGIN_ECHECS_PAR_IP', default=300, cast=int)
 AXES_HTTP_RESPONSE_CODE   = 429
 AXES_LOCKOUT_TEMPLATE     = None
 AXES_ENABLE_ADMIN         = True

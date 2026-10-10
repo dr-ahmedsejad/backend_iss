@@ -18,7 +18,7 @@ from .services.rbac_service import (
     get_user_permissions,
     toggle_user_permission, toggle_role_permission,
 )
-from core.throttles import LoginRateThrottle, SensitiveEndpointThrottle, AdminActionThrottle
+from core.throttles import SensitiveEndpointThrottle, AdminActionThrottle
 from core.audit_helpers import write_audit
 from core.models import (ACTION_ACCOUNT_UNLOCKED, ACTION_LOGIN_SUCCESS, ACTION_LOGOUT,
                          ACTION_PASSWORD_CHANGED, ACTION_PASSWORD_RESET)
@@ -188,9 +188,15 @@ def _emis_avant_la_derniere_publication(jeton) -> bool:
 
 
 class CookieTokenRefreshView(TokenRefreshView):
-    """Refresh depuis le cookie HttpOnly."""
+    """Refresh depuis le cookie HttpOnly.
+
+    Pas de limite par adresse : il faut un jeton de renouvellement SIGNÉ,
+    il n'y a rien à deviner. Derrière le Wi-Fi du campus, des centaines
+    d'étudiants partagent UNE adresse publique : 5 renouvellements par quart
+    d'heure (LoginRateThrottle) déconnectaient tous les suivants en masse.
+    """
     permission_classes = [AllowAny]
-    throttle_classes   = [LoginRateThrottle]
+    throttle_classes   = []
 
     def post(self, request, *args, **kwargs):
         refresh = request.COOKIES.get(JWT_CONF.get('AUTH_COOKIE_REFRESH', 'refresh_token'))
@@ -534,8 +540,8 @@ class UserViewSet(viewsets.ModelViewSet):
         Réinitialise :
           - Axes (DB AccessAttempt) : blocages par compte ET par adresse,
             tous deux calculés sur cette table ;
-          - LoginRateThrottle (cache DRF clé throttle_login_<ip>) : renouvellement
-            de jeton et premier accès.
+          - l'ancien compteur DRF LoginRateThrottle (clé throttle_login_<ip>),
+            encore présent en cache après une mise à jour.
         Body : { "username": "..." } | { "ip": "..." } | { "all": true }
         """
         from axes.utils import reset

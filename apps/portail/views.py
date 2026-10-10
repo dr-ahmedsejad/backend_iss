@@ -3,6 +3,7 @@ Portail étudiant — vues.
 Toutes les vues exigent le rôle 'etudiant' via IsEtudiant.
 L'étudiant ne voit que ses propres données (filtrées par request.user.etudiant_profile).
 """
+import logging
 import threading as _threading
 
 from rest_framework import generics, status
@@ -16,6 +17,8 @@ from apps.reclamations.models import Reclamation
 from apps.reclamations.serializers import ReclamationCreateSerializer, ReclamationSerializer
 from .serializers import ProfilEtudiantSerializer, AbsenceEtudiantSerializer
 from core.telechargement import entete_piece_jointe
+
+logger = logging.getLogger('siga')
 
 # ── Suivi des générations PDF en cours ────────────────────────────────────────
 # Évite de lancer plusieurs wkhtmltopdf simultanément pour le même document.
@@ -256,6 +259,7 @@ class MesAbsencesView(APIView):
         etudiant = _get_etudiant(request)
         qs = Presence.objects.select_related(
             'suivi__creneau_fk', 'suivi__em', 'suivi__prof', 'suivi__jour_fk',
+            'suivi__type_seance_fk',   # lu par le serializer : sinon 1 requête par absence
         ).filter(etudiant=etudiant).exclude(statut=0).order_by(
             '-suivi__annee_universitaire', '-suivi__numero_semaine', 'suivi__jour_fk__jour'
         )
@@ -298,9 +302,11 @@ class MesNotesView(APIView):
 
             serializer = NoteEtudiantSerializer(elements, many=True)
             return Response(serializer.data)
-        except Exception as e:
-            import traceback
-            return Response({'detail': str(e), 'trace': traceback.format_exc()}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception:
+            # Détail technique dans les journaux, jamais dans la réponse.
+            logger.exception('portail/notes : échec pour user=%s', request.user.pk)
+            return Response({'detail': 'Notes momentanément indisponibles.'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # ── Résultats semestriels ─────────────────────────────────────────────────────
