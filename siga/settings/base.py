@@ -445,6 +445,11 @@ AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT = False
 # quelques fautes de frappe bloquaient tout le monde 15 min. Le blocage
 # par compte (5 échecs) reste la vraie protection.
 LOGIN_ECHECS_PAR_IP       = config('LOGIN_ECHECS_PAR_IP', default=300, cast=int)
+
+# Cache des consultations étudiantes (notes, emploi du temps) : durée maximale
+# d'une copie, en secondes. Une écriture l'invalide avant (apps/portail/
+# cache_portail.py). 0 = cache coupé (retour immédiat à l'ancien comportement).
+PORTAIL_CACHE_SECONDES = config('PORTAIL_CACHE_SECONDES', default=600, cast=int)
 AXES_HTTP_RESPONSE_CODE   = 429
 AXES_LOCKOUT_TEMPLATE     = None
 AXES_ENABLE_ADMIN         = True

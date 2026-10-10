@@ -86,13 +86,23 @@ class MonEmploiView(APIView):
     permission_classes = [IsEtudiant]
 
     def get(self, request):
+        # Copie gardée tant que les données ne changent pas (cache_portail.py).
+        # Sans semaine demandée, la semaine affichée dépend du jour : il entre
+        # dans la clé.
+        from django.utils import timezone
+        from .cache_portail import reponse_en_cache
+        etudiant = _get_etudiant(request)
+        semaine = request.query_params.get('semaine') or ''
+        parties = [etudiant.pk, _annee_demandee(request) or '', semaine,
+                   '' if semaine else timezone.localdate().isoformat()]
+        return reponse_en_cache('emploi', parties, lambda: self._calculer(request, etudiant))
+
+    def _calculer(self, request, etudiant):
         from collections import defaultdict
         from django.db.models import Max, Q
         from apps.suivi.models import Suivie
         from apps.parametres.models import Creneau, Seance
         from apps.inscriptions.models import InscriptionPedagogique
-
-        etudiant = _get_etudiant(request)
 
         # ── Déterminer annee_universitaire + semestre_id depuis l'inscription péda ──
         ips = InscriptionPedagogique.objects.filter(inscription_admin__etudiant=etudiant)
@@ -276,11 +286,19 @@ class MesNotesView(APIView):
     permission_classes = [IsEtudiant]
 
     def get(self, request):
+        # Copie gardée tant que les données ne changent pas (cache_portail.py) :
+        # la consolidation (compensation, capitalisation) n'est refaite qu'après
+        # une écriture.
+        from .cache_portail import reponse_en_cache
+        etudiant = _get_etudiant(request)
+        return reponse_en_cache('notes', [etudiant.pk, _annee_demandee(request) or ''],
+                                lambda: self._calculer(request, etudiant))
+
+    def _calculer(self, request, etudiant):
         try:
             from apps.inscriptions.models import InscriptionElement, InscriptionPedagogique
             from .serializers import NoteEtudiantSerializer
 
-            etudiant = _get_etudiant(request)
             inscriptions_ped = InscriptionPedagogique.objects.filter(
                 inscription_admin__etudiant=etudiant,
             )
