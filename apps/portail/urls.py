@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .enseignant import ProfilEnseignantView
+from .views_accueil import AccueilView
 from .views import (
     MonProfilView, MonEmploiView, MesAbsencesView,
     MesNotesView, MesResultatsView,
@@ -13,6 +14,7 @@ from .views import (
 
 urlpatterns = [
     path('semaines/',                        SemaniesEtudiantView.as_view(),   name='portail-semaines'),
+    path('accueil/',                       AccueilView.as_view(),            name='portail-accueil'),
     path('annees/',                         MesAnneesView.as_view(),          name='portail-annees'),
     path('profil/',                         MonProfilView.as_view(),          name='portail-profil'),
     path('emploi-du-temps/',                MonEmploiView.as_view(),          name='portail-emploi'),
