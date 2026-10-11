@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'apps.stages',
     'apps.documents',
     'apps.notifications',
+    'apps.annonces',
     # Portail étudiant
     'apps.reclamations',
     'apps.portail',
